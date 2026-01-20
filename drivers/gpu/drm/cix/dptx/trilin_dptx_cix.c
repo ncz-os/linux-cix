@@ -36,6 +36,7 @@
 #include <linux/component.h>
 #include <linux/of_device.h>
 #include <linux/module.h>
+#include <linux/version.h>
 
 #include "trilin_dptx_reg.h"
 #include "trilin_host_tmr.h"
@@ -341,14 +342,20 @@ static int trilin_dptx_cix_probe(struct platform_device *pdev)
 #endif
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
 static int trilin_dptx_cix_remove(struct platform_device *pdev)
+#else
+static void trilin_dptx_cix_remove(struct platform_device *pdev)
+#endif
 {
 #if !IS_ENABLED(CONFIG_DRM_CIX_COMPONENT_BIND_BYPASSED)
 	component_del(&pdev->dev, &trilin_dptx_cix_ops);
 #else
 	trilin_dptx_cix_unbind(&pdev->dev, NULL, NULL);
 #endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
 	return 0;
+#endif
 }
 
 #ifdef CONFIG_PM
