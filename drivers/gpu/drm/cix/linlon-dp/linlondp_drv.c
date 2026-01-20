@@ -6,13 +6,22 @@
  */
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/version.h>
 #include <linux/platform_device.h>
 #include <linux/component.h>
 #include <linux/pm_runtime.h>
 #include <drm/drm_fb_helper.h>
 #include <drm/drm_module.h>
 #include <drm/drm_of.h>
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
 #include <drm/drm_fbdev_generic.h>
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(6, 13, 0)
+#include <drm/drm_fbdev_ttm.h>
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(6, 14, 0)
+#include <drm/drm_client_setup.h>
+#else
+#include <drm/clients/drm_client_setup.h>
+#endif
 #include "linlondp_dev.h"
 #include "linlondp_kms.h"
 
@@ -79,7 +88,13 @@ static int linlondp_bind(struct device *dev)
 
 	dev_set_drvdata(dev, mdrv);
 	if (enable_fb)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
 		drm_fbdev_generic_setup(&mdrv->kms->base, 32);
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(6, 13, 0)
+		drm_fbdev_ttm_setup(&mdrv->kms->base, 32);
+#else
+		drm_client_setup(&mdrv->kms->base, NULL);
+#endif
 
 	if (mdrv->mdev->enabled_by_gop)
 		pm_runtime_set_active(dev);
@@ -205,14 +220,20 @@ static int linlondp_platform_probe(struct platform_device *pdev)
 #endif
 }
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0))
 static int linlondp_platform_remove(struct platform_device *pdev)
+#else
+static void linlondp_platform_remove(struct platform_device *pdev)
+#endif
 {
 #if !IS_ENABLED(CONFIG_DRM_CIX_COMPONENT_BIND_BYPASSED)
 	component_master_del(&pdev->dev, &linlondp_master_ops);
 #else
 	linlondp_unbind(&pdev->dev);
 #endif
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0))
 	return 0;
+#endif
 }
 
 static const struct of_device_id linlondp_of_match[] = {
