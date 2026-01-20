@@ -1907,8 +1907,12 @@ static int trilin_dp_ctrl_stream_off(struct trilin_dp *dp,
 	u32 regs_off = TRILIN_DPTX_SOURCE_OFFSET * dp_panel->stream_id;
 
 	if (dp->edp_panel) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 16, 0)
 		if (drm_panel_disable(dp->edp_panel))
 			DP_INFO("edp panel disable failed");
+#else
+		drm_panel_disable(dp->edp_panel);
+#endif
 	}
 	/*reset infoframe*/
 	trilin_dp_write(dp, TRILIN_DPTX_SEC0_INFOFRAME_ENABLE + regs_off, 0);
@@ -2137,7 +2141,12 @@ train_done:
 		dp->platform_id);
 
 	if (dp->edp_panel) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 16, 0)
 		rc = drm_panel_enable(dp->edp_panel);
+#else
+		drm_panel_enable(dp->edp_panel);
+		rc = 0;
+#endif
 		if (rc) {
 			DP_INFO("edp panel disable failed but GO ON");
 			rc = 0;
@@ -2453,7 +2462,12 @@ int trilin_dp_host_init(struct trilin_dp *dp)
 	}
 
 	if (dp->edp_panel) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 16, 0)
 		rc = drm_panel_prepare(dp->edp_panel);
+#else
+		drm_panel_prepare(dp->edp_panel);
+		rc = 0;
+#endif
 		if (rc) {
 			DP_ERR("edp panel prepare failed");
 			goto err_out;
@@ -2502,8 +2516,12 @@ static void trilin_dp_host_deinit(struct trilin_dp *dp)
 		return;
 	}
 	if (dp->edp_panel) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 16, 0)
 		if (drm_panel_unprepare(dp->edp_panel))
 			DP_INFO("unprepare failed");
+#else
+		drm_panel_unprepare(dp->edp_panel);
+#endif
 	}
 
 	if (phy->phy_ops)
