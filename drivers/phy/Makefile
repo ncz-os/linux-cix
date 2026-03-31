@@ -26,6 +26,7 @@ obj-$(CONFIG_GENERIC_PHY)		+= allwinner/	\
 					   axiado/	\
 					   broadcom/	\
 					   cadence/	\
+					   cix/		\
 					   canaan/	\
 					   eswin/	\
 					   freescale/	\
