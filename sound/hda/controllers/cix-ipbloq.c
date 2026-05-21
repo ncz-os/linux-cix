@@ -930,7 +930,7 @@ static int __maybe_unused cix_ipbloq_hda_resume(struct device *dev)
 	snd_power_change_state(card, SNDRV_CTL_POWER_D0);
 
 	/* Resend init verbs after resume */
-	cix_ipbloq_hda_send_init_verbs(hda);
+	//cix_ipbloq_hda_send_init_verbs(hda);
 
 	return 0;
 }
