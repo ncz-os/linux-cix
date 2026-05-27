@@ -2993,6 +2993,7 @@ state_put:
 		drm_atomic_state_put(new_state);
 unlock:
 	DRM_MODESET_LOCK_ALL_END(dev, ctx, ret);
+	drm_kms_helper_connector_hotplug_event(connector);
 	return ret;
 }
 
