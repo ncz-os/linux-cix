@@ -280,13 +280,8 @@ int sky1_npu_pm_runtime_get_sync(struct device *dev)
 int sky1_npu_pm_runtime_put(struct device *dev)
 {
 #ifdef CONFIG_PM
-	int ret = 0;
-
-	ret = pm_runtime_put(dev);
-	if (ret < 0)
-		dev_err(dev, "PM runtime put failed! ret=%d", ret);
-
-	return ret;
+	pm_runtime_put(dev);
+	return 0;
 #else /* !CONFIG_PM  */
 	return 0;
 #endif /* CONFIG_PM */
@@ -487,11 +482,7 @@ static int sky1_npu_runtime_suspend(struct device *dev)
 
 	if (has_acpi_companion(dev)) {
 		for (int i = 0; i < CIX_NPU_PD_NUM; i++) {
-			ret = pm_runtime_put(cix_aipu_priv->pd_core[i]);
-			if (ret < 0) {
-				dev_err(cix_aipu_priv->pd_core[i], "NPU core PM runtime put failed! ret=%d", ret);
-				return ret;
-			}
+			pm_runtime_put(cix_aipu_priv->pd_core[i]);
 		}
 	}
 
