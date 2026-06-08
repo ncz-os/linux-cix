@@ -940,12 +940,15 @@ static int aipu_mm_add_iova_region(struct aipu_memory_manager *mm)
 		iova_region_size = 0x10000000;
 	}
 
+/* MS-R1 fix: NPU address bus is 32-bit; constrain IOMMU IOVAs to 3 GB.
+ * Without this the IOMMU hands out 35-bit addresses that the NPU truncates,
+ * causing SMMU faults on every memory access. (FyrbyAdditive/ms-r1-npu-hack) */
 #if (KERNEL_VERSION(5, 5, 0) <= LINUX_VERSION_CODE)
-	mm->dev->bus_dma_limit = 0x800000000;
+	mm->dev->bus_dma_limit = 0xc0000000;
 #elif (KERNEL_VERSION(4, 19, 0) <= LINUX_VERSION_CODE)
-	mm->dev->bus_dma_mask = 0x800000000;
+	mm->dev->bus_dma_mask = 0xc0000000;
 #endif
-	mm->dma_mask = 35;
+	mm->dma_mask = 32;
 
 	if (aipu_mm_reserved_iova_for_never_map(mm, IOVA_ALLOC)) {
 		dev_err(mm->dev, "fail to reserve iova region for never map.");
