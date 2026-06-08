@@ -232,6 +232,30 @@ static inline u32 cdns_pcie_readl(struct cdns_pcie *pcie, u32 reg)
 	return readl(pcie->reg_base + reg);
 }
 
+/* Sky1 IP register bank base — added by NCZ fixup for 7.0.9 */
+#ifndef CDNS_PCIE_IP_REG_BANK_BASE
+#define CDNS_PCIE_IP_REG_BANK_BASE		0x1000
+#endif
+
+enum cdns_pcie_reg_bank {
+	REG_BANK_LM_REG,
+	REG_BANK_IP_REG,
+	REG_BANK_AXI_SLAVE,
+};
+
+static inline u32 cdns_reg_bank_to_off(struct cdns_pcie *pcie, enum cdns_pcie_reg_bank bank)
+{
+	switch (bank) {
+	case REG_BANK_LM_REG:
+		return CDNS_PCIE_LM_BASE;
+	case REG_BANK_IP_REG:
+		return CDNS_PCIE_IP_REG_BANK_BASE;
+	case REG_BANK_AXI_SLAVE:
+		return CDNS_PCIE_AXI_SLAVE_OFFSET;
+	}
+	return 0;
+}
+
 static inline void cdns_pcie_hpa_writel(struct cdns_pcie *pcie,
 					enum cdns_pcie_reg_bank bank,
 					u32 reg,
