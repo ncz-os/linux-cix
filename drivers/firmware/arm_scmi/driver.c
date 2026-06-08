@@ -176,7 +176,7 @@ struct scmi_info {
 #define handle_to_scmi_info(h)	container_of(h, struct scmi_info, handle)
 
 /* Sentinel stored in active_protocols IDR for ACPI-enumerated protocols */
-#define SCMI_NO_DT_NODE		((struct device_node *)0x1)
+#define SCMI_NO_DT_NODE		ERR_PTR(-ENODEV)
 #define tx_minfo_to_scmi_info(h) container_of(h, struct scmi_info, tx_minfo)
 #define bus_nb_to_scmi_info(nb)	container_of(nb, struct scmi_info, bus_nb)
 #define req_nb_to_scmi_info(nb)	container_of(nb, struct scmi_info, dev_req_nb)
@@ -2945,7 +2945,7 @@ static int scmi_device_request_notifier(struct notifier_block *nb,
 	np = idr_find(&info->active_protocols, id_table->protocol_id);
 	if (!np)
 		return NOTIFY_DONE;
-	if (np == SCMI_NO_DT_NODE)
+	if (IS_ERR(np))
 		np = NULL;
 
 	dev_dbg(info->dev, "%sRequested device (%s) for protocol 0x%x\n",
@@ -3427,7 +3427,7 @@ static void scmi_remove(struct platform_device *pdev)
 	mutex_unlock(&info->protocols_mtx);
 
 	idr_for_each_entry(&info->active_protocols, child, id)
-		if (child != SCMI_NO_DT_NODE)
+		if (!IS_ERR_OR_NULL(child))
 			of_node_put(child);
 	idr_destroy(&info->active_protocols);
 

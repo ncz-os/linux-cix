@@ -419,6 +419,12 @@ int mvx_hwreg_construct(struct mvx_hwreg *hwreg,
 
     hwreg->dev = dev;
 
+    if (!rcsu_res) {
+        hwreg->rcsu_res = NULL;
+        hwreg->rcsu_registers = NULL;
+        goto skip_rcsu;
+    }
+
     hwreg->rcsu_res = request_mem_region(rcsu_res->start, resource_size(rcsu_res), name);
     if (hwreg->rcsu_res == NULL) {
         MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR,
@@ -436,6 +442,7 @@ int mvx_hwreg_construct(struct mvx_hwreg *hwreg,
         goto release_rcsu_mem;
     }
 
+skip_rcsu:
     hwreg->res = request_mem_region(res->start, resource_size(res), name);
     if (hwreg->res == NULL) {
         MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR,

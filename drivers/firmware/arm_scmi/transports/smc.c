@@ -187,7 +187,7 @@ static int smc_chan_setup(struct scmi_chan_info *cinfo, struct device *dev,
 	 * completion of a message is signaled by an interrupt rather than by
 	 * the return of the SMC call.
 	 */
-	scmi_info->irq = of_irq_get_byname(cdev->of_node, "a2p");
+	scmi_info->irq = fwnode_irq_get_byname(dev_fwnode(cdev), "a2p");
 	if (scmi_info->irq > 0) {
 		ret = request_irq(scmi_info->irq, smc_msg_done_isr,
 				  IRQF_NO_SUSPEND, dev_name(dev), scmi_info);
