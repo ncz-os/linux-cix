@@ -339,32 +339,13 @@ static int panthor_devfreq_scmi_init(struct panthor_device *ptdev,
 			return 0;
 	} else {
 		/*
-		 * ACPI: attach directly to the SCMI perf genpd.  The
-		 * genpd's attach_dev callback populates OPPs on the
-		 * main device.  No virtual device or OPP copy needed.
+		 * ACPI: skip optional GPU DVFS if the SCMI perf genpd is not
+		 * already attached by firmware/core code.  Some 7.1 trees do not
+		 * expose a public genpd lookup-by-name helper.
 		 */
-		struct generic_pm_domain *perf_genpd;
-
-		perf_genpd = pm_genpd_lookup_by_name("gpu_core");
-		if (!perf_genpd) {
-			drm_dbg(&ptdev->base,
-				"GPU DVFS: gpu_core genpd not found\n");
-			return 0;
-		}
-
-		ret = pm_genpd_add_device(perf_genpd, dev);
-		if (ret) {
-			drm_warn(&ptdev->base,
-				 "Failed to attach SCMI perf domain: %d\n",
-				 ret);
-			return 0;
-		}
-
 		count = dev_pm_opp_get_opp_count(dev);
-		if (count <= 0) {
-			pm_genpd_remove_device(dev);
+		if (count <= 0)
 			return 0;
-		}
 
 		/* Main device IS the OPP device under ACPI */
 		opp_dev = dev;
