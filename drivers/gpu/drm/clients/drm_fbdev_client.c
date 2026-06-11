@@ -42,6 +42,13 @@ static int drm_fbdev_client_restore(struct drm_client_dev *client, bool force)
 {
 	struct drm_fb_helper *fb_helper = drm_fb_helper_from_client(client);
 
+	/* If initial fbdev setup failed, fb_helper->info remains NULL. */
+	if (!fb_helper || !fb_helper->info) {
+		drm_dbg_kms(client->dev,
+			    "skipping fbdev restore before fbdev setup completed\n");
+		return 0;
+	}
+
 	drm_fb_helper_restore_fbdev_mode_unlocked(fb_helper, force);
 
 	return 0;

@@ -3,6 +3,7 @@
 /* Copyright 2019 Linaro, Ltd, Rob Herring <robh@kernel.org> */
 /* Copyright 2023 Collabora ltd. */
 
+#include <linux/acpi.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/iommu.h>
@@ -182,13 +183,21 @@ static int panthor_clk_init(struct panthor_device *ptdev)
 		return dev_err_probe(ptdev->base.dev,
 				     PTR_ERR(ptdev->clks.core),
 				     "get 'gpu_clk_core' clock failed");
+	if (!ptdev->clks.core && has_acpi_companion(ptdev->base.dev) &&
+	    acpi_dev_hid_match(ACPI_COMPANION(ptdev->base.dev), "CIXH5000"))
+		ptdev->clks.core = devm_clk_get_optional(ptdev->base.dev, "gpu_core");
+	if (IS_ERR(ptdev->clks.core))
+		return dev_err_probe(ptdev->base.dev,
+				     PTR_ERR(ptdev->clks.core),
+				     "get gpu_core clock failed");
 	if (!ptdev->clks.core) {
 		ptdev->clks.core = devm_clk_get(ptdev->base.dev, NULL);
 		if (IS_ERR(ptdev->clks.core))
 			return dev_err_probe(ptdev->base.dev,
 					     PTR_ERR(ptdev->clks.core),
-					     "get 'core' clock failed");
+					     "get core clock failed");
 	}
+
 
 	/* Try vendor name first (gpu_clk_stacks), then mainline name (stacks) */
 	ptdev->clks.stacks = devm_clk_get_optional(ptdev->base.dev, "gpu_clk_stacks");
