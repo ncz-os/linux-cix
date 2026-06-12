@@ -4,6 +4,7 @@
  * ALL RIGHTS RESERVED
  *
  */
+#include <linux/aperture.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
@@ -59,6 +60,18 @@ static int linlondp_bind(struct device *dev)
 	struct linlondp_drv *mdrv;
 	int err;
 
+	dev_info(dev, "cix: linlondp_bind ENTER dev=%s fwnode=%pfwP\n",
+		 dev_name(dev), dev->fwnode);
+
+	/* Remove existing drivers that may own the framebuffer memory. */
+	err = aperture_remove_all_conflicting_devices("linlondp");
+	if (err) {
+		DRM_DEV_ERROR(dev,
+			      "Failed to remove existing framebuffers - %d.\n",
+			      err);
+		return err;
+	}
+
 	mdrv = devm_kzalloc(dev, sizeof(*mdrv), GFP_KERNEL);
 	if (!mdrv)
 		return -ENOMEM;
@@ -109,6 +122,10 @@ static int compare_of(struct device *dev, void *data)
 {
 	int ret;
 
+	dev_info(dev,
+		 "cix: compare candidate dev=%s fwnode=%pfwP data=%pfwP acpi=%d\n",
+		 dev_name(dev), dev->fwnode, data, has_acpi_companion(dev));
+
 	if (has_acpi_companion(dev)) {
 		ret = dev->fwnode == data;
 	} else {
@@ -118,6 +135,9 @@ static int compare_of(struct device *dev, void *data)
 		ret = dev->of_node == data;
 #endif
 	}
+
+	dev_info(dev, "cix: compare result dev=%s ret=%d\n",
+		 dev_name(dev), ret);
 
 	return ret;
 }
@@ -135,6 +155,10 @@ static void linlondp_add_acpi_slave(struct device *master,
 	struct fwnode_handle *remote;
 
 	remote = fwnode_graph_get_remote_node(np, port, endpoint);
+
+	dev_info(master,
+		 "cix: add_acpi_slave master=%s np=%pfwP port=%u ep=%u remote=%pfwP\n",
+		 dev_name(master), np, port, endpoint, remote);
 
 	if (remote) {
 		fwnode_handle_get(remote);
@@ -165,25 +189,26 @@ static int linlondp_platform_probe(struct platform_device *pdev)
 	struct device_node *of_child;
 	const char *tmp_name = NULL;
 
-	dev_dbg(dev, "probe enter\n");
+	dev_info(dev, "probe enter\n");
 #if !IS_ENABLED(CONFIG_DRM_CIX_COMPONENT_BIND_BYPASSED)
 	if (has_acpi_companion(dev)) {
-		dev_dbg(dev, "probe via ACPI\n");
+		dev_info(dev, "probe via ACPI\n");
 		fwnode_for_each_child_node(dev->fwnode, acpi_child) {
 			tmp_name = acpi_child->ops->get_name(acpi_child);
+			dev_info(dev, "ACPI child %s\n", tmp_name);
 			if (strncmp(tmp_name, "pipeline", 8))
 				continue;
 
 			/* add connector */
 			linlondp_add_acpi_slave(dev, &match, acpi_child,
-						LINLONDP_OF_PORT_OUTPUT, 0);
+						LINLONDP_ACPI_PORT_OUTPUT, 0);
 			linlondp_add_acpi_slave(dev, &match, acpi_child,
-						LINLONDP_OF_PORT_OUTPUT, 1);
+						LINLONDP_ACPI_PORT_COPROC, 1);
 
 			dev_pm_set_driver_flags(&pdev->dev, DPM_FLAG_NO_DIRECT_COMPLETE);
 		}
 	} else {
-		dev_dbg(dev, "probe via DT\n");
+		dev_info(dev, "probe via DT\n");
 		for_each_available_child_of_node(dev->of_node, of_child) {
 			if (of_node_cmp(of_child->name, "pipeline") != 0)
 				continue;
@@ -196,9 +221,11 @@ static int linlondp_platform_probe(struct platform_device *pdev)
 		}
 	}
 	if (!match) {
-		dev_dbg(dev, "no display connectors found, skipping\n");
+		dev_info(dev, "no display connectors found, skipping\n");
 		return -ENODEV;
 	}
+
+	dev_info(dev, "cix: component match list built, calling component_master_add_with_match\n");
 
 	return component_master_add_with_match(dev, &linlondp_master_ops,
 					       match);

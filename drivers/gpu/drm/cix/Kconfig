@@ -15,6 +15,7 @@ config DRM_LINLONDP
 	depends on DRM_CIX
 	select DRM_KMS_HELPER
 	select DRM_GEM_DMA_HELPER
+	select DRM_CLIENT_SELECTION
 	select VIDEOMODE_HELPERS
 	help
 	  Choose this option if you want to compile the ARMCHINA Linlon display

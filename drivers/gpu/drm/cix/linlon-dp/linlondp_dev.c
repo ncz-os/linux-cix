@@ -4,7 +4,9 @@
  * ALL RIGHTS RESERVED
  *
  */
+#include <linux/acpi.h>
 #include <linux/io.h>
+#include <linux/list.h>
 #include <linux/iommu.h>
 #include <linux/of_device.h>
 #include <linux/of_graph.h>
@@ -23,11 +25,104 @@
 #include "linlondp_dev.h"
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
+static struct fwnode_handle *cix_fwnode_get_child_by_name(struct fwnode_handle *parent,
+							 const char *name)
+{
+	struct fwnode_handle *child;
+
+	fwnode_for_each_child_node(parent, child) {
+		const char *child_name = child->ops->get_name(child);
+
+		if (child_name && !strcmp(child_name, name))
+			return child;
+	}
+
+	/*
+	 * Linux 7.1's public fwnode child iterator may skip ACPI data-node
+	 * children when walking from another data node. The Sky1 display graph is
+	 * made of ACPI data nodes (pipeline@N/port@N/endpoint@N), so fall back to
+	 * the ACPI data-node subnode list directly when needed.
+	 */
+	if (is_acpi_data_node(parent)) {
+		const struct acpi_data_node *data = to_acpi_data_node(parent);
+		struct acpi_data_node *dn;
+
+		list_for_each_entry(dn, &data->data.subnodes, sibling) {
+			if (!strcmp(dn->name, name))
+				return &dn->fwnode;
+		}
+	}
+
+	return NULL;
+}
+
+
+static struct fwnode_handle *cix_fwnode_graph_get_remote_device(struct fwnode_handle *endpoint)
+{
+	struct fwnode_reference_args args;
+	struct fwnode_handle *node;
+	struct acpi_device *adev;
+
+	if (fwnode_property_get_reference_args(endpoint, "remote-endpoint",
+					      NULL, 0, 0, &args))
+		return fwnode_graph_get_remote_port_parent(endpoint);
+
+	/*
+	 * ACPI _DSD remote-endpoint references may resolve to endpoint/port/root
+	 * data nodes. Component matching needs the owning CIXH502F ACPI device
+	 * fwnode (DP00/DP01/...), not an intermediate graph node.
+	 */
+	node = args.fwnode;
+	while (node) {
+		if (is_acpi_data_node(node)) {
+			struct acpi_data_node *dn = to_acpi_data_node(node);
+			if (dn->handle) {
+				adev = acpi_fetch_acpi_dev(dn->handle);
+				if (adev && !strcmp(acpi_device_hid(adev), "CIXH502F"))
+					return acpi_fwnode_handle(adev);
+			}
+		} else if (is_acpi_device_node(node)) {
+			adev = to_acpi_device_node(node);
+			if (adev && !strcmp(acpi_device_hid(adev), "CIXH502F"))
+				return acpi_fwnode_handle(adev);
+		}
+		node = fwnode_get_next_parent(node);
+	}
+
+	return fwnode_graph_get_remote_port_parent(endpoint);
+}
+
 struct fwnode_handle *
 fwnode_graph_get_remote_node(const struct fwnode_handle *fwnode, u32 port_id,
 			     u32 endpoint_id)
 {
 	struct fwnode_handle *endpoint = NULL;
+
+	/*
+	 * Linux 7.1's generic ACPI graph iterator no longer sees Sky1's
+	 * data-node graph when starting from a pipeline@N data node. Walk the
+	 * ACPI data-node names directly first (port@N/endpoint@N), matching the
+	 * firmware layout exposed under /sys/devices/LNXSYSTM:00/LNXSYBUS:00.
+	 */
+	if (is_acpi_data_node(fwnode)) {
+		struct fwnode_handle *port, *remote;
+		char port_name[16], endpoint_name[20];
+
+		snprintf(port_name, sizeof(port_name), "port@%u", port_id);
+		snprintf(endpoint_name, sizeof(endpoint_name), "endpoint@%u", endpoint_id);
+
+		port = cix_fwnode_get_child_by_name((struct fwnode_handle *)fwnode, port_name);
+		if (port) {
+			endpoint = cix_fwnode_get_child_by_name(port, endpoint_name);
+			fwnode_handle_put(port);
+			if (endpoint) {
+				remote = cix_fwnode_graph_get_remote_device(endpoint);
+				fwnode_handle_put(endpoint);
+				if (remote)
+					return remote;
+			}
+		}
+	}
 
 	while ((endpoint = fwnode_graph_get_next_endpoint(fwnode, endpoint))) {
 		struct fwnode_endpoint fwnode_ep;
@@ -41,9 +136,12 @@ fwnode_graph_get_remote_node(const struct fwnode_handle *fwnode, u32 port_id,
 		if (fwnode_ep.port != port_id || fwnode_ep.id != endpoint_id)
 			continue;
 
-		remote = fwnode_graph_get_remote_port_parent(endpoint);
+		remote = cix_fwnode_graph_get_remote_device(endpoint);
 		if (!remote)
 			return NULL;
+
+		if (is_acpi_node(remote))
+			return remote;
 
 		return fwnode_device_is_available(remote) ? remote : NULL;
 	}
@@ -638,6 +736,15 @@ struct linlondp_dev *linlondp_dev_create(struct device *dev)
 	int err = 0;
 
 	linlondp_identify = device_get_match_data(dev);
+
+	/*
+	 * Linux 7.1 no longer returns ACPI .driver_data from
+	 * device_get_match_data() for this platform in practice. Keep the ACPI
+	 * CIXH5010 path alive by falling back to the DPU identify routine; the
+	 * match table still restricts binding to the correct HID.
+	 */
+	if (!linlondp_identify && has_acpi_companion(dev))
+		linlondp_identify = dp_identify;
 
 	if (!linlondp_identify)
 		return ERR_PTR(-ENODEV);

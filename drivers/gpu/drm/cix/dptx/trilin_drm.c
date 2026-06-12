@@ -48,6 +48,26 @@
 #include "../linlon-dp/linlondp_dev.h"
 #include "../linlon-dp/linlondp_kms.h"
 
+/*
+ * Linux 7.1 renamed the legacy DRM_COLOR_FORMAT_* bitmask macros to the
+ * enum drm_output_color_format (drm_connector.h). drm_display_info.color_formats
+ * is now a bitmask of BIT(DRM_OUTPUT_COLOR_FORMAT_*). Provide local compat
+ * macros so this driver keeps its original bitmask semantics for switch/case,
+ * bitmask &/|, and equality comparisons.
+ */
+#ifndef DRM_COLOR_FORMAT_RGB444
+#define DRM_COLOR_FORMAT_RGB444   BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444)
+#endif
+#ifndef DRM_COLOR_FORMAT_YCBCR444
+#define DRM_COLOR_FORMAT_YCBCR444 BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR444)
+#endif
+#ifndef DRM_COLOR_FORMAT_YCBCR422
+#define DRM_COLOR_FORMAT_YCBCR422 BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR422)
+#endif
+#ifndef DRM_COLOR_FORMAT_YCBCR420
+#define DRM_COLOR_FORMAT_YCBCR420 BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR420)
+#endif
+
 #define ADJUST_BACKPORCH 1
 #define INVERSE_VSYNC 1
 #define GET_EDID_RETRY_MAX 50

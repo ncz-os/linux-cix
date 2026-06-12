@@ -16,11 +16,31 @@
 #include <drm/drm_writeback.h>
 #include <drm/drm_print.h>
 
+/*
+ * Linux 7.1 compat: define legacy DRM_COLOR_FORMAT_* bitmask macros.
+ * drm_display_info.color_formats is now a bitmask of
+ * BIT(DRM_OUTPUT_COLOR_FORMAT_*). These macros preserve the original
+ * bitmask semantics for bitwise &/|, switch/case, and equality checks.
+ */
+#ifndef DRM_COLOR_FORMAT_RGB444
+#define DRM_COLOR_FORMAT_RGB444   BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444)
+#endif
+#ifndef DRM_COLOR_FORMAT_YCBCR444
+#define DRM_COLOR_FORMAT_YCBCR444 BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR444)
+#endif
+#ifndef DRM_COLOR_FORMAT_YCBCR422
+#define DRM_COLOR_FORMAT_YCBCR422 BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR422)
+#endif
+#ifndef DRM_COLOR_FORMAT_YCBCR420
+#define DRM_COLOR_FORMAT_YCBCR420 BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR420)
+#endif
+
 struct linlondp_events;
 /**
  * struct linlondp_plane - linlondp instance of drm_plane
  */
 struct linlondp_plane {
+
 	/** @base: &drm_plane */
 	struct drm_plane base;
 

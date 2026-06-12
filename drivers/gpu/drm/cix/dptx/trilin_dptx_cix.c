@@ -35,6 +35,7 @@
 #include <asm/types.h>
 #include <linux/component.h>
 #include <linux/of_device.h>
+#include <linux/of_platform.h>
 #include <linux/module.h>
 
 #include "trilin_dptx_reg.h"
@@ -124,6 +125,9 @@ static int trilin_dptx_cix_bind(struct device *comp, struct device *master,
 	const void *match;
 	struct drm_device *drm = master_data;
 	struct trilin_dptx_cix_dev *cix_dptx = dev_get_drvdata(comp);
+
+	dev_info(comp, "cix: dptx component bind ENTER comp=%s master=%s\n",
+		 dev_name(comp), dev_name(master));
 	struct drm_encoder *encoder;
 	struct trilin_dpsub *dpsub;
 	int ret = 0;
@@ -220,6 +224,8 @@ static int trilin_dptx_cix_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, dptx_dev);
 
 #if !IS_ENABLED(CONFIG_DRM_CIX_COMPONENT_BIND_BYPASSED)
+	dev_info(&pdev->dev, "cix: dptx probe component_add dev=%s fwnode=%pfwP\n",
+		 dev_name(&pdev->dev), pdev->dev.fwnode);
 	return component_add(&pdev->dev, &trilin_dptx_cix_ops);
 #else
 	struct device_node *ports_node, *port_node;

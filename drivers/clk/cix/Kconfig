@@ -11,11 +11,11 @@ config CLK_SKY1_ACPI
 	  ACPI boot on Sky1 SoCs.
 
 config CLK_SKY1_AUDSS
-	bool "CIX Sky1 Audio Subsystem Clock Controller"
+	tristate "CIX Sky1 Audio Subsystem Clock Controller"
 	depends on ARCH_CIX || COMPILE_TEST
 	depends on MFD_SYSCON
 	depends on COMMON_CLK
-	default ARCH_CIX
+	default n
 	help
 	  This enables the audio subsystem clock controller for CIX Sky1
 	  SoCs. This is required for the audio subsystem including I2S

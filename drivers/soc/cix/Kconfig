@@ -34,7 +34,7 @@ config CIX_ACPI_RESOURCE_LOOKUP
 	depends on ARCH_CIX || COMPILE_TEST
 	depends on ACPI
 	depends on RESET_CONTROLLER
-	default ARCH_CIX
+	default n
 	help
 	  Processes custom CIX DSDT tables (RSTL, RSNL, DLKL) to register
 	  reset control lookups, assign names to platform resources, and

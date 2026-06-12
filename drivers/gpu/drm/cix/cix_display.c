@@ -6,6 +6,7 @@
 #include <linux/device.h>
 #include <linux/module.h>
 #include <linux/of_platform.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
 #include <linux/acpi.h>
@@ -177,13 +178,11 @@ static int __init cix_acpi_display_probe(void)
        return 0;
 }
 
-static int cix_display_remove(struct platform_device *pdev)
+static void cix_display_remove(struct platform_device *pdev)
 {
        struct device *dev = &pdev->dev;
 
        dev_set_drvdata(dev, NULL);
-
-       return 0;
 }
 
 struct platform_driver cix_display_driver = {
@@ -191,12 +190,28 @@ struct platform_driver cix_display_driver = {
        .remove = cix_display_remove,
        .driver = {
                .name = "cix-display",
-               .of_match_table = of_match_ptr(cix_display_dt_ids),
+               .of_match_table = cix_display_dt_ids,
                .acpi_match_table = ACPI_PTR(cix_display_acpi_ids),
        },
 };
 
-core_initcall(cix_acpi_display_probe);
+static int __init cix_display_init(void)
+{
+       int ret;
+
+       ret = cix_acpi_display_probe();
+       if (ret)
+               return ret;
+
+       return platform_driver_register(&cix_display_driver);
+}
+module_init(cix_display_init);
+
+static void __exit cix_display_exit(void)
+{
+       platform_driver_unregister(&cix_display_driver);
+}
+module_exit(cix_display_exit);
 
 MODULE_DESCRIPTION("Cix Display Driver");
 MODULE_LICENSE("GPL v2");
