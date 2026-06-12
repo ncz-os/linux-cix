@@ -203,7 +203,7 @@ static int linlondp_platform_probe(struct platform_device *pdev)
 			linlondp_add_acpi_slave(dev, &match, acpi_child,
 						LINLONDP_ACPI_PORT_OUTPUT, 0);
 			linlondp_add_acpi_slave(dev, &match, acpi_child,
-						LINLONDP_ACPI_PORT_COPROC, 1);
+						LINLONDP_ACPI_PORT_OUTPUT, 1);
 
 			dev_pm_set_driver_flags(&pdev->dev, DPM_FLAG_NO_DIRECT_COMPLETE);
 		}

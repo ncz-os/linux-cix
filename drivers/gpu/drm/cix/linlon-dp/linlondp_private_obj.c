@@ -15,6 +15,19 @@ static void linlondp_component_state_reset(struct linlondp_component_state *st)
 	st->changed_active_inputs = 0;
 }
 
+static inline int linlondp_atomic_private_obj_init(struct drm_device *dev,
+						  struct drm_private_obj *obj,
+						  struct drm_private_state *state,
+						  const struct drm_private_state_funcs *funcs)
+{
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 1, 0)
+	return drm_atomic_private_obj_init(dev, obj, funcs);
+#else
+	drm_atomic_private_obj_init(dev, obj, state, funcs);
+	return 0;
+#endif
+}
+
 static struct drm_private_state *
 linlondp_layer_atomic_duplicate_state(struct drm_private_obj *obj)
 {
@@ -57,8 +70,8 @@ static int linlondp_layer_obj_add(struct linlondp_kms_dev *kms,
 		return -ENOMEM;
 
 	st->base.component = &layer->base;
-	drm_atomic_private_obj_init(&kms->base, &layer->base.obj,
-				    &linlondp_layer_obj_funcs);
+	linlondp_atomic_private_obj_init(&kms->base, &layer->base.obj,
+					   &st->base.obj, &linlondp_layer_obj_funcs);
 	return 0;
 }
 
@@ -99,8 +112,8 @@ static int linlondp_scaler_obj_add(struct linlondp_kms_dev *kms,
 		return -ENOMEM;
 
 	st->base.component = &scaler->base;
-	drm_atomic_private_obj_init(&kms->base, &scaler->base.obj,
-				    &linlondp_scaler_obj_funcs);
+	linlondp_atomic_private_obj_init(&kms->base, &scaler->base.obj,
+					   &st->base.obj, &linlondp_scaler_obj_funcs);
 	return 0;
 }
 
@@ -141,8 +154,8 @@ static int linlondp_compiz_obj_add(struct linlondp_kms_dev *kms,
 		return -ENOMEM;
 
 	st->base.component = &compiz->base;
-	drm_atomic_private_obj_init(&kms->base, &compiz->base.obj,
-				    &linlondp_compiz_obj_funcs);
+	linlondp_atomic_private_obj_init(&kms->base, &compiz->base.obj,
+					   &st->base.obj, &linlondp_compiz_obj_funcs);
 
 	return 0;
 }
@@ -184,8 +197,8 @@ static int linlondp_splitter_obj_add(struct linlondp_kms_dev *kms,
 		return -ENOMEM;
 
 	st->base.component = &splitter->base;
-	drm_atomic_private_obj_init(&kms->base, &splitter->base.obj,
-				    &linlondp_splitter_obj_funcs);
+	linlondp_atomic_private_obj_init(&kms->base, &splitter->base.obj,
+					   &st->base.obj, &linlondp_splitter_obj_funcs);
 
 	return 0;
 }
@@ -227,8 +240,8 @@ static int linlondp_merger_obj_add(struct linlondp_kms_dev *kms,
 		return -ENOMEM;
 
 	st->base.component = &merger->base;
-	drm_atomic_private_obj_init(&kms->base, &merger->base.obj,
-				    &linlondp_merger_obj_funcs);
+	linlondp_atomic_private_obj_init(&kms->base, &merger->base.obj,
+					   &st->base.obj, &linlondp_merger_obj_funcs);
 
 	return 0;
 }
@@ -270,8 +283,8 @@ static int linlondp_improc_obj_add(struct linlondp_kms_dev *kms,
 		return -ENOMEM;
 
 	st->base.component = &improc->base;
-	drm_atomic_private_obj_init(&kms->base, &improc->base.obj,
-				    &linlondp_improc_obj_funcs);
+	linlondp_atomic_private_obj_init(&kms->base, &improc->base.obj,
+					   &st->base.obj, &linlondp_improc_obj_funcs);
 
 	return 0;
 }
@@ -313,8 +326,8 @@ static int linlondp_timing_ctrlr_obj_add(struct linlondp_kms_dev *kms,
 		return -ENOMEM;
 
 	st->base.component = &ctrlr->base;
-	drm_atomic_private_obj_init(&kms->base, &ctrlr->base.obj,
-				    &linlondp_timing_ctrlr_obj_funcs);
+	linlondp_atomic_private_obj_init(&kms->base, &ctrlr->base.obj,
+					   &st->base.obj, &linlondp_timing_ctrlr_obj_funcs);
 
 	return 0;
 }
@@ -357,8 +370,8 @@ static int linlondp_pipeline_obj_add(struct linlondp_kms_dev *kms,
 		return -ENOMEM;
 
 	st->pipe = pipe;
-	drm_atomic_private_obj_init(&kms->base, &pipe->obj,
-				    &linlondp_pipeline_obj_funcs);
+	linlondp_atomic_private_obj_init(&kms->base, &pipe->obj,
+					   &st->obj, &linlondp_pipeline_obj_funcs);
 
 	return 0;
 }
