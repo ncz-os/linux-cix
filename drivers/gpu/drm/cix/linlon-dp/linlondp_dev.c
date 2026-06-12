@@ -758,8 +758,13 @@ struct linlondp_dev *linlondp_dev_create(struct device *dev)
 	 * CIXH5010 path alive by falling back to the DPU identify routine; the
 	 * match table still restricts binding to the correct HID.
 	 */
-	if (!linlondp_identify && has_acpi_companion(dev))
-		linlondp_identify = dp_identify;
+	if (!linlondp_identify && has_acpi_companion(dev)) {
+		struct acpi_device *adev = ACPI_COMPANION(dev);
+		const char *hid = adev ? acpi_device_hid(adev) : NULL;
+
+		if (hid && !strcmp(hid, "CIXH5010"))
+			linlondp_identify = dp_identify;
+	}
 
 	if (!linlondp_identify)
 		return ERR_PTR(-ENODEV);

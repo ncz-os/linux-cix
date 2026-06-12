@@ -201,7 +201,7 @@ static int __init cix_display_init(void)
 
        ret = cix_acpi_display_probe();
        if (ret)
-               pr_warn("cix-display: early ACPI reset probe failed: %d; continuing\n", ret);
+               return ret;
 
        return platform_driver_register(&cix_display_driver);
 }
