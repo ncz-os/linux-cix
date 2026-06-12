@@ -195,14 +195,14 @@ struct platform_driver cix_display_driver = {
        },
 };
 
+static int __init cix_display_early_init(void)
+{
+       return cix_acpi_display_probe();
+}
+core_initcall(cix_display_early_init);
+
 static int __init cix_display_init(void)
 {
-       int ret;
-
-       ret = cix_acpi_display_probe();
-       if (ret)
-               return ret;
-
        return platform_driver_register(&cix_display_driver);
 }
 module_init(cix_display_init);

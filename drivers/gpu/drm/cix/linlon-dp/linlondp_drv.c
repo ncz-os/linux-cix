@@ -154,7 +154,7 @@ static void linlondp_add_acpi_slave(struct device *master,
 {
 	struct fwnode_handle *remote;
 
-	remote = fwnode_graph_get_remote_node(np, port, endpoint);
+	remote = cix_fwnode_graph_get_remote_node(np, port, endpoint);
 
 	dev_info(master,
 		 "cix: add_acpi_slave master=%s np=%pfwP port=%u ep=%u remote=%pfwP\n",

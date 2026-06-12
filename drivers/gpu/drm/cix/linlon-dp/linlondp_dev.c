@@ -115,7 +115,7 @@ static struct fwnode_handle *cix_fwnode_graph_get_remote_device(struct fwnode_ha
 
 
 struct fwnode_handle *
-fwnode_graph_get_remote_node(const struct fwnode_handle *fwnode, u32 port_id,
+cix_fwnode_graph_get_remote_node(const struct fwnode_handle *fwnode, u32 port_id,
 			     u32 endpoint_id)
 {
 	struct fwnode_handle *endpoint = NULL;
@@ -622,10 +622,10 @@ static int linlondp_parse_pipe_acpi(struct linlondp_pipeline *pipe)
 #endif
 	/* enum ports */
 	pipe->fwnode_output_links[0] =
-		fwnode_graph_get_remote_node(np, LINLONDP_ACPI_PORT_OUTPUT, 0);
+		cix_fwnode_graph_get_remote_node(np, LINLONDP_ACPI_PORT_OUTPUT, 0);
 
 	pipe->fwnode_output_links[1] =
-		fwnode_graph_get_remote_node(np, LINLONDP_ACPI_PORT_OUTPUT, 1);
+		cix_fwnode_graph_get_remote_node(np, LINLONDP_ACPI_PORT_OUTPUT, 1);
 
 	pipe->fwnode_output_port =
 		fwnode_graph_get_port_by_id(np, LINLONDP_ACPI_PORT_OUTPUT);

@@ -303,7 +303,7 @@ int linlondp_dev_suspend(struct linlondp_dev *mdev);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
 struct fwnode_handle *
-fwnode_graph_get_remote_node(const struct fwnode_handle *fwnode, u32 port_id,
+cix_fwnode_graph_get_remote_node(const struct fwnode_handle *fwnode, u32 port_id,
 			     u32 endpoint_id);
 #endif
 
