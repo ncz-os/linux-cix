@@ -750,7 +750,10 @@ struct linlondp_dev *linlondp_dev_create(struct device *dev)
 	u32 is_insmod = 0;
 	int err = 0;
 
-	linlondp_identify = acpi_device_get_match_data(dev);
+	if (has_acpi_companion(dev))
+		linlondp_identify = acpi_device_get_match_data(dev);
+	else
+		linlondp_identify = device_get_match_data(dev);
 
 	if (!linlondp_identify)
 		return ERR_PTR(-ENODEV);
