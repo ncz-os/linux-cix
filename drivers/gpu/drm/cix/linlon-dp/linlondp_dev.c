@@ -60,7 +60,7 @@ static struct fwnode_handle *cix_fwnode_get_child_by_name(struct fwnode_handle *
 static struct fwnode_handle *cix_fwnode_graph_get_remote_device(struct fwnode_handle *endpoint)
 {
 	struct fwnode_reference_args args;
-	struct fwnode_handle *node, *parent, *remote = NULL;
+	struct fwnode_handle *cur, *next, *remote = NULL;
 	struct acpi_device *adev;
 
 	if (fwnode_property_get_reference_args(endpoint, "remote-endpoint",
@@ -69,14 +69,15 @@ static struct fwnode_handle *cix_fwnode_graph_get_remote_device(struct fwnode_ha
 
 	/*
 	 * ACPI _DSD remote-endpoint references may resolve to endpoint/port/root
-	 * data nodes. Component matching needs the owning CIXH502F ACPI device
-	 * fwnode (DP00/DP01/...), not an intermediate graph node.
+	 * data nodes. Component matching needs the owning ACPI device fwnode
+	 * (DP00/DP01/...), not an intermediate graph node.
 	 */
-	for (node = args.fwnode; node; node = parent) {
-		parent = NULL;
+	cur = args.fwnode;
+	while (cur) {
+		next = NULL;
 
-		if (is_acpi_data_node(node)) {
-			struct acpi_data_node *dn = to_acpi_data_node(node);
+		if (is_acpi_data_node(cur)) {
+			struct acpi_data_node *dn = to_acpi_data_node(cur);
 
 			if (dn->handle) {
 				adev = acpi_fetch_acpi_dev(dn->handle);
@@ -86,22 +87,20 @@ static struct fwnode_handle *cix_fwnode_graph_get_remote_device(struct fwnode_ha
 					break;
 				}
 			}
-		} else if (is_acpi_device_node(node)) {
-			adev = to_acpi_device_node(node);
+		} else if (is_acpi_device_node(cur)) {
+			adev = to_acpi_device_node(cur);
 			if (adev) {
 				remote = fwnode_handle_get(acpi_fwnode_handle(adev));
 				break;
 			}
 		}
 
-		parent = fwnode_get_next_parent(node);
-		if (node != args.fwnode)
-			fwnode_handle_put(node);
+		next = fwnode_get_next_parent(cur);
+		fwnode_handle_put(cur);
+		cur = next;
 	}
 
-	if (node && node != args.fwnode)
-		fwnode_handle_put(node);
-	fwnode_handle_put(args.fwnode);
+	fwnode_handle_put(cur);
 
 	return remote ?: fwnode_graph_get_remote_port_parent(endpoint);
 }

@@ -205,7 +205,7 @@ static int __init cix_display_init(void)
 
        return platform_driver_register(&cix_display_driver);
 }
-module_init(cix_display_init);
+core_initcall(cix_display_init);
 
 static void __exit cix_display_exit(void)
 {
