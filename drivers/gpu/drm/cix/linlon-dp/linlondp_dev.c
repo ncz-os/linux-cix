@@ -48,7 +48,7 @@ static struct fwnode_handle *cix_fwnode_get_child_by_name(struct fwnode_handle *
 		struct acpi_data_node *dn;
 
 		list_for_each_entry(dn, &data->data.subnodes, sibling) {
-			if (!strcmp(dn->name, name))
+			if (dn->name && !strcmp(dn->name, name))
 				return fwnode_handle_get(&dn->fwnode);
 		}
 	}
@@ -80,7 +80,9 @@ static struct fwnode_handle *cix_fwnode_graph_get_remote_device(struct fwnode_ha
 			if (dn->handle) {
 				adev = acpi_fetch_acpi_dev(dn->handle);
 				if (adev) {
-					if (!strcmp(acpi_device_hid(adev), "CIXH502F"))
+					const char *hid = acpi_device_hid(adev);
+
+					if (hid && !strcmp(hid, "CIXH502F"))
 						remote = fwnode_handle_get(acpi_fwnode_handle(adev));
 					acpi_dev_put(adev);
 					if (remote)
@@ -89,9 +91,13 @@ static struct fwnode_handle *cix_fwnode_graph_get_remote_device(struct fwnode_ha
 			}
 		} else if (is_acpi_device_node(node)) {
 			adev = to_acpi_device_node(node);
-			if (adev && !strcmp(acpi_device_hid(adev), "CIXH502F")) {
-				remote = fwnode_handle_get(acpi_fwnode_handle(adev));
-				break;
+			if (adev) {
+				const char *hid = acpi_device_hid(adev);
+
+				if (hid && !strcmp(hid, "CIXH502F")) {
+					remote = fwnode_handle_get(acpi_fwnode_handle(adev));
+					break;
+				}
 			}
 		}
 
