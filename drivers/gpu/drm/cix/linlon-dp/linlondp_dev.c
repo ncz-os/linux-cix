@@ -31,7 +31,7 @@ static struct fwnode_handle *cix_fwnode_get_child_by_name(struct fwnode_handle *
 	struct fwnode_handle *child;
 
 	fwnode_for_each_child_node(parent, child) {
-		const char *child_name = child->ops->get_name(child);
+		const char *child_name = fwnode_get_name(child);
 
 		if (child_name && !strcmp(child_name, name))
 			return fwnode_handle_get(child);
@@ -79,9 +79,12 @@ static struct fwnode_handle *cix_fwnode_graph_get_remote_device(struct fwnode_ha
 			struct acpi_data_node *dn = to_acpi_data_node(node);
 			if (dn->handle) {
 				adev = acpi_fetch_acpi_dev(dn->handle);
-				if (adev && !strcmp(acpi_device_hid(adev), "CIXH502F")) {
-					remote = fwnode_handle_get(acpi_fwnode_handle(adev));
-					break;
+				if (adev) {
+					if (!strcmp(acpi_device_hid(adev), "CIXH502F"))
+						remote = fwnode_handle_get(acpi_fwnode_handle(adev));
+					acpi_dev_put(adev);
+					if (remote)
+						break;
 				}
 			}
 		} else if (is_acpi_device_node(node)) {
