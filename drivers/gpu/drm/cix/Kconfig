@@ -5,6 +5,8 @@ config DRM_CIX
 	select VIDEOMODE_HELPERS
 	select DRM_GEM_DMA_HELPER
 	depends on DRM && ARCH_CIX
+	depends on ACPI
+	depends on OF
 	help
 	  enable CiX DRM display support
 
