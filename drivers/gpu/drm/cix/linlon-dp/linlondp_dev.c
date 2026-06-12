@@ -750,21 +750,7 @@ struct linlondp_dev *linlondp_dev_create(struct device *dev)
 	u32 is_insmod = 0;
 	int err = 0;
 
-	linlondp_identify = device_get_match_data(dev);
-
-	/*
-	 * Linux 7.1 no longer returns ACPI .driver_data from
-	 * device_get_match_data() for this platform in practice. Keep the ACPI
-	 * CIXH5010 path alive by falling back to the DPU identify routine; the
-	 * match table still restricts binding to the correct HID.
-	 */
-	if (!linlondp_identify && has_acpi_companion(dev)) {
-		struct acpi_device *adev = ACPI_COMPANION(dev);
-		const char *hid = adev ? acpi_device_hid(adev) : NULL;
-
-		if (hid && !strcmp(hid, "CIXH5010"))
-			linlondp_identify = dp_identify;
-	}
+	linlondp_identify = acpi_device_get_match_data(dev);
 
 	if (!linlondp_identify)
 		return ERR_PTR(-ENODEV);
