@@ -34,7 +34,7 @@ static struct fwnode_handle *cix_fwnode_get_child_by_name(struct fwnode_handle *
 		const char *child_name = child->ops->get_name(child);
 
 		if (child_name && !strcmp(child_name, name))
-			return child;
+			return fwnode_handle_get(child);
 	}
 
 	/*
@@ -49,7 +49,7 @@ static struct fwnode_handle *cix_fwnode_get_child_by_name(struct fwnode_handle *
 
 		list_for_each_entry(dn, &data->data.subnodes, sibling) {
 			if (!strcmp(dn->name, name))
-				return &dn->fwnode;
+				return fwnode_handle_get(&dn->fwnode);
 		}
 	}
 
@@ -60,7 +60,7 @@ static struct fwnode_handle *cix_fwnode_get_child_by_name(struct fwnode_handle *
 static struct fwnode_handle *cix_fwnode_graph_get_remote_device(struct fwnode_handle *endpoint)
 {
 	struct fwnode_reference_args args;
-	struct fwnode_handle *node;
+	struct fwnode_handle *node, *parent, *remote = NULL;
 	struct acpi_device *adev;
 
 	if (fwnode_property_get_reference_args(endpoint, "remote-endpoint",
@@ -72,25 +72,38 @@ static struct fwnode_handle *cix_fwnode_graph_get_remote_device(struct fwnode_ha
 	 * data nodes. Component matching needs the owning CIXH502F ACPI device
 	 * fwnode (DP00/DP01/...), not an intermediate graph node.
 	 */
-	node = args.fwnode;
-	while (node) {
+	for (node = args.fwnode; node; node = parent) {
+		parent = NULL;
+
 		if (is_acpi_data_node(node)) {
 			struct acpi_data_node *dn = to_acpi_data_node(node);
 			if (dn->handle) {
 				adev = acpi_fetch_acpi_dev(dn->handle);
-				if (adev && !strcmp(acpi_device_hid(adev), "CIXH502F"))
-					return acpi_fwnode_handle(adev);
+				if (adev && !strcmp(acpi_device_hid(adev), "CIXH502F")) {
+					remote = fwnode_handle_get(acpi_fwnode_handle(adev));
+					break;
+				}
 			}
 		} else if (is_acpi_device_node(node)) {
 			adev = to_acpi_device_node(node);
-			if (adev && !strcmp(acpi_device_hid(adev), "CIXH502F"))
-				return acpi_fwnode_handle(adev);
+			if (adev && !strcmp(acpi_device_hid(adev), "CIXH502F")) {
+				remote = fwnode_handle_get(acpi_fwnode_handle(adev));
+				break;
+			}
 		}
-		node = fwnode_get_next_parent(node);
+
+		parent = fwnode_get_next_parent(node);
+		if (node != args.fwnode)
+			fwnode_handle_put(node);
 	}
 
-	return fwnode_graph_get_remote_port_parent(endpoint);
+	if (node && node != args.fwnode)
+		fwnode_handle_put(node);
+	fwnode_handle_put(args.fwnode);
+
+	return remote ?: fwnode_graph_get_remote_port_parent(endpoint);
 }
+
 
 struct fwnode_handle *
 fwnode_graph_get_remote_node(const struct fwnode_handle *fwnode, u32 port_id,
