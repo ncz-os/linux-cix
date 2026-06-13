@@ -83,6 +83,8 @@ static int cix_display_probe(struct platform_device *pdev)
        cix_display->reset_mask[4] = DISPLAY4_RESET_MASK;
 
        base = ioremap(DISPLAY_RESET_REG, 0x4);
+       if (!base)
+               return -ENOMEM;
 
        value = readl(base);
        dev_info(dev, "current reset value = 0x%x, reset-control=%d\n", value, control);
@@ -143,6 +145,8 @@ static int __init cix_acpi_display_probe(void)
        cix_display->reset_mask[4] = DISPLAY4_RESET_MASK;
 
        base = ioremap(DISPLAY_RESET_REG, 0x4);
+       if (!base)
+               return -ENOMEM;
 
        value = readl(base);
 
@@ -203,19 +207,13 @@ struct platform_driver cix_display_driver = {
 
 static int __init cix_display_init(void)
 {
-       int ret;
-
-       ret = cix_acpi_display_probe();
-       if (ret)
-               return ret;
-
-       ret = platform_driver_register(&cix_display_driver);
-       if (ret)
-               cix_acpi_display_cleanup();
-
-       return ret;
+       return platform_driver_register(&cix_display_driver);
 }
+#ifdef MODULE
 module_init(cix_display_init);
+#else
+subsys_initcall(cix_display_init);
+#endif
 
 static void __exit cix_display_exit(void)
 {

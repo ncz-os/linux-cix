@@ -12,6 +12,7 @@
 #include "cix_hdcp_ioctl_cmd.h"
 
 static LIST_HEAD(cix_hdcp_list);
+static DEFINE_MUTEX(cix_hdcp_list_lock);
 
 static unsigned int cix_hdcp_ioctl_cmds[] = {
 	HDCP2_IOCTL_RXSTATE,
@@ -37,7 +38,9 @@ int cix_hdcp_hpd_event_process(struct cix_hdcp *hdcp, bool plugged)
 		return 0;
 	}
 
-	e = kmalloc(sizeof(struct hdcp_event), GFP_KERNEL);
+	e = kmalloc(sizeof(*e), GFP_KERNEL);
+	if (!e)
+		return -ENOMEM;
 
 	if (plugged == true) {
 		e->event = EV2_TX_RX_CONNECT;
@@ -64,7 +67,9 @@ int cix_hdcp_timer_process(struct cix_hdcp *hdcp)
 
 	hdcp->timer_in_use = false;
 
-	e = kmalloc(sizeof(struct hdcp_event), GFP_KERNEL);
+	e = kmalloc(sizeof(*e), GFP_KERNEL);
+	if (!e)
+		return -ENOMEM;
 	e->event = EV2_TX_TIMER;
 
 	dev_info(hdcp->aux->dev, "report event timer\n");
@@ -83,7 +88,9 @@ int cix_hdcp_cp_irq_process(struct cix_hdcp *hdcp, u8 rx_status)
 	struct hdcp_event *e;
 
 	if (rx_status & 0x1f) {
-		e = kmalloc(sizeof(struct hdcp_event), GFP_KERNEL);
+		e = kmalloc(sizeof(*e), GFP_KERNEL);
+		if (!e)
+			return -ENOMEM;
 		if (rx_status & 0x1) {
 			e->event = EV2_TX_READY;
 			dev_info(hdcp->aux->dev, "report event EV2_TX_READY\n");
@@ -129,7 +136,8 @@ static int cix_hdcp_open(struct inode *inode, struct file *filp)
 	int ret;
 	struct cix_hdcp *pos, *hdcp = NULL;
 
-	list_for_each_entry (pos, &cix_hdcp_list, list) {
+	mutex_lock(&cix_hdcp_list_lock);
+	list_for_each_entry(pos, &cix_hdcp_list, list) {
 		if (pos->misc.minor == iminor(inode)) {
 			hdcp = pos;
 			break;
@@ -142,9 +150,9 @@ static int cix_hdcp_open(struct inode *inode, struct file *filp)
 		dev_info(hdcp->aux->dev, "succeed to open hdcp file\n");
 		ret = 0;
 	} else {
-		dev_info(hdcp->aux->dev, "failed to open hdcp file\n");
-		ret = -EINVAL;
+		ret = -ENODEV;
 	}
+	mutex_unlock(&cix_hdcp_list_lock);
 
 	return ret;
 }
@@ -373,11 +381,17 @@ int cix_hdcp_init(struct cix_hdcp *hdcp)
 	hdcp->misc.name = hdcp->name;
 	hdcp->misc.fops = &hdcp_fops;
 
+	mutex_lock(&cix_hdcp_list_lock);
+	list_add(&hdcp->list, &cix_hdcp_list);
+	mutex_unlock(&cix_hdcp_list_lock);
+
 	ret = misc_register(&hdcp->misc);
 	if (!ret) {
-		list_add(&hdcp->list, &cix_hdcp_list);
 		dev_info(dev, "succeed register hdcp misc device.\n");
 	} else {
+		mutex_lock(&cix_hdcp_list_lock);
+		list_del(&hdcp->list);
+		mutex_unlock(&cix_hdcp_list_lock);
 		dev_err(dev, "cannot register hdcp misc device, ret=%d.\n",
 			ret);
 		return ret;
@@ -389,7 +403,9 @@ int cix_hdcp_init(struct cix_hdcp *hdcp)
 int cix_hdcp_uninit(struct cix_hdcp *hdcp)
 {
 	misc_deregister(&hdcp->misc);
+	mutex_lock(&cix_hdcp_list_lock);
 	list_del(&hdcp->list);
+	mutex_unlock(&cix_hdcp_list_lock);
 	hdcp->aux = NULL;
 
 	return 0;

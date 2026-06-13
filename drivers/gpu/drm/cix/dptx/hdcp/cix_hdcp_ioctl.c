@@ -11,6 +11,8 @@
 #include <linux/errno.h>
 #include "cix_hdcp.h"
 #include "cix_hdcp_ioctl.h"
+
+#define CIX_HDCP_AUX_MAX_BYTES 4096
 #include "cix_hdcp_ioctl_cmd.h"
 #include "hdcp2_tx_tmr.h"
 #include "hdcp2_tx_state.h"
@@ -68,8 +70,8 @@ int cix_hdcp2_ioctl_dpcd_access(struct cix_hdcp *hdcp, void *kdata)
 		goto exit;
 	}
 
-	if (!aux_trxn->ct) {
-		dev_err(dev, "%s, aux_trxn->ct is zero\n", __func__);
+	if (!aux_trxn->ct || aux_trxn->ct > CIX_HDCP_AUX_MAX_BYTES) {
+		dev_err(dev, "%s, invalid aux_trxn->ct=%u\n", __func__, aux_trxn->ct);
 		ret = -EINVAL;
 		goto exit;
 	}
@@ -78,6 +80,10 @@ int cix_hdcp2_ioctl_dpcd_access(struct cix_hdcp *hdcp, void *kdata)
 		aux_trxn->data, aux_trxn->addr, aux_trxn->ct);
 
 	udata = kmalloc(aux_trxn->ct, GFP_KERNEL | __GFP_ZERO);
+	if (!udata) {
+		ret = -ENOMEM;
+		goto exit;
+	}
 
 	if (aux_trxn->cmd == TR_DPTX_AUX_CMD_READ) {
 		bytes = drm_dp_dpcd_read(aux, aux_trxn->addr, udata,
