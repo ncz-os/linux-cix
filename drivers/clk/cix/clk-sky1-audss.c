@@ -669,23 +669,29 @@ static int sky1_audss_parse_clka(struct device *dev,
 		if (!adev)
 			continue;
 
-		if (clk_id >= clk_data->num)
+		if (clk_id >= clk_data->num) {
+			acpi_dev_put(adev);
 			continue;
+		}
 		hw = clk_data->hws[clk_id];
-		if (!hw || IS_ERR(hw))
+		if (!hw || IS_ERR(hw)) {
+			acpi_dev_put(adev);
 			continue;
+		}
 
 		ret = devm_clk_hw_register_clkdev(dev, hw, con_id,
 						  dev_name(&adev->dev));
 		if (ret) {
 			dev_warn(dev, "CLKA: failed to register %s:%s (clk %u): %d\n",
 				 dev_name(&adev->dev), con_id ?: "", clk_id, ret);
+			acpi_dev_put(adev);
 			continue;
 		}
 
 		dev_dbg(dev, "CLKA: clk %u -> %s:%s\n",
 			clk_id, dev_name(&adev->dev), con_id ?: "");
 		registered++;
+		acpi_dev_put(adev);
 	}
 
 	kfree(output.pointer);

@@ -399,7 +399,7 @@ scmi_clk_ops_select(struct scmi_clk *sclk, bool atomic_capable,
 
 static int scmi_clocks_probe(struct scmi_device *sdev)
 {
-	int idx, count, err, registered = 0;
+	int idx, count, err, registered = 0, first_err = 0;
 	unsigned int atomic_threshold_us;
 	bool transport_is_atomic;
 	struct clk_hw **hws;
@@ -509,15 +509,18 @@ static int scmi_clocks_probe(struct scmi_device *sdev)
 
 		snprintf(con_id, sizeof(con_id), "scmi-clk-%d", idx);
 		err = devm_clk_hw_register_clkdev(dev, hws[idx], con_id, NULL);
-		if (err)
+		if (err) {
 			dev_warn(dev,
-				 "Failed to register clkdev for clock %d\n",
-				 idx);
-		else
+				 "Failed to register clkdev for clock %d: %d\n",
+				 idx, err);
+			if (!first_err)
+				first_err = err;
+		} else {
 			registered++;
+		}
 	}
 
-	return (count == 0 || registered) ? 0 : -EPROBE_DEFER;
+	return first_err ?: ((count == 0 || registered) ? 0 : -EPROBE_DEFER);
 }
 
 static const struct scmi_device_id scmi_id_table[] = {

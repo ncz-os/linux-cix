@@ -139,13 +139,15 @@ static acpi_status sky1_clkt_walk_cb(acpi_handle handle, u32 level,
 				cdev = acpi_fetch_acpi_dev(ref->reference.handle);
 				if (cdev) {
 					consumer_name = acpi_dev_name(cdev);
-					goto parse;
+					ret = sky1_parse_clkt_entry(priv, consumer_name, e);
+					acpi_dev_put(cdev);
+					goto parsed;
 				}
 			}
 		}
 		consumer_name = acpi_dev_name(adev);
-parse:
 		ret = sky1_parse_clkt_entry(priv, consumer_name, e);
+parsed:
 		if (ret == -EPROBE_DEFER)
 			priv->err = -EPROBE_DEFER;
 		else if (ret && ret != -EINVAL && !priv->err)
@@ -153,6 +155,7 @@ parse:
 	}
 
 out:
+	acpi_dev_put(adev);
 	kfree(buf.pointer);
 	return AE_OK;
 }
