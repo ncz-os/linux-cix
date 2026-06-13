@@ -42,7 +42,7 @@ static int sky1_parse_clkt_entry(struct sky1_acpi_clk *priv,
 	union acpi_object *elems;
 	u64 clock_id;
 	const char *con_id;
-	char scmi_id[20];
+	char scmi_id[32];
 	struct clk *clk;
 	struct clk_lookup *cl;
 	int ret;
@@ -65,7 +65,9 @@ static int sky1_parse_clkt_entry(struct sky1_acpi_clk *priv,
 		con_id = NULL;
 
 	/* Look up the SCMI clock by its clkdev registration name */
-	snprintf(scmi_id, sizeof(scmi_id), "scmi-clk-%llu", (unsigned long long)clock_id);
+	ret = snprintf(scmi_id, sizeof(scmi_id), "scmi-clk-%llu", (unsigned long long)clock_id);
+	if (ret < 0 || ret >= sizeof(scmi_id))
+		return -EINVAL;
 	clk = clk_get(NULL, scmi_id);
 	if (IS_ERR(clk)) {
 		dev_dbg(priv->dev, "SCMI clock %llu not available for %s\n",

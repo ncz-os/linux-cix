@@ -107,7 +107,6 @@ static inline bool topology_core_has_smt(int cpu)
 
 #ifdef CONFIG_CPU_FREQ
 struct cpufreq_policy;
-void topology_update_freq_ref(struct cpufreq_policy *policy);
 #endif
 #else /* !CONFIG_GENERIC_ARCH_TOPOLOGY */
 
@@ -115,7 +114,6 @@ static inline bool topology_core_has_smt(int cpu) { return false; }
 
 #ifdef CONFIG_CPU_FREQ
 struct cpufreq_policy;
-static inline void topology_update_freq_ref(struct cpufreq_policy *policy) { }
 #endif
 #endif /* CONFIG_GENERIC_ARCH_TOPOLOGY */
 
