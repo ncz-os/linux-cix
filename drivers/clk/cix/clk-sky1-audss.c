@@ -583,7 +583,9 @@ static int __maybe_unused sky1_audss_clk_runtime_suspend(struct device *dev)
 		regmap_read(priv->regmap, priv->reg_save[i][0], &priv->reg_save[i][1]);
 	}
 
-	reset_control_assert(priv->rst_noc);
+	ret = reset_control_assert(priv->rst_noc);
+	if (ret)
+		return ret;
 	sky1_audss_clks_disable(priv);
 
 	return 0;
@@ -608,6 +610,7 @@ static int __maybe_unused sky1_audss_clk_runtime_resume(struct device *dev)
 	}
 
 	if (!priv->rcsu_base) {
+		reset_control_assert(priv->rst_noc);
 		sky1_audss_clks_disable(priv);
 		return -ENODEV;
 	}
@@ -961,8 +964,14 @@ static void sky1_audss_clk_remove(struct platform_device *pdev)
 		iounmap(priv->rcsu_base);
 
 	/* Force suspend if not already suspended */
-	if (!pm_runtime_status_suspended(dev))
-		pm_runtime_force_suspend(dev);
+	if (!pm_runtime_status_suspended(dev)) {
+		int ret = pm_runtime_force_suspend(dev);
+
+		if (ret) {
+			dev_err(dev, "runtime force suspend failed: %d\n", ret);
+			return;
+		}
+	}
 
 	if (priv->acpi_powered &&
 	    !acpi_device_set_power(ACPI_COMPANION(dev), ACPI_STATE_D3_COLD))
