@@ -450,7 +450,9 @@ static int scmi_clocks_probe(struct scmi_device *sdev)
 		sclk->info = scmi_proto_clk_ops->info_get(ph, idx);
 		if (!sclk->info) {
 			dev_dbg(dev, "invalid clock info for idx %d\n", idx);
-			hws[idx] = NULL;
+			if (!first_err)
+				first_err = -ENOENT;
+			hws[idx] = ERR_PTR(-ENOENT);
 			continue;
 		}
 
@@ -488,7 +490,7 @@ static int scmi_clocks_probe(struct scmi_device *sdev)
 		if (err) {
 			dev_err(dev, "failed to register clock %d\n", idx);
 			devm_kfree(dev, sclk->parent_data);
-			hws[idx] = NULL;
+			hws[idx] = ERR_PTR(err);
 		} else {
 			dev_dbg(dev, "Registered clock:%s%s\n",
 				sclk->info->name,
@@ -528,7 +530,12 @@ static int scmi_clocks_probe(struct scmi_device *sdev)
 		}
 	}
 
-	return (count == 0 || registered) ? 0 : (first_err ?: -EPROBE_DEFER);
+	if (count == 0)
+		return 0;
+	if (registered != count)
+		return first_err ?: -EPROBE_DEFER;
+
+	return 0;
 }
 
 static const struct scmi_device_id scmi_id_table[] = {

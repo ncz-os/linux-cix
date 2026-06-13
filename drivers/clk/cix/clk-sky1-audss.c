@@ -311,13 +311,13 @@ static unsigned long sky1_audss_div_recalc_rate(struct clk_hw *hw,
 				   div->flags, div->width);
 }
 
-static long sky1_audss_div_round_rate(struct clk_hw *hw, unsigned long rate,
-				      unsigned long *prate)
+static int sky1_audss_div_determine_rate(struct clk_hw *hw,
+					       struct clk_rate_request *req)
 {
 	struct clk_divider *div = to_clk_divider(hw);
 
-	return divider_round_rate(hw, rate, prate, div->table,
-				  div->width, div->flags);
+	return divider_determine_rate(hw, req, div->table,
+				      div->width, div->flags);
 }
 
 static int sky1_audss_div_set_rate(struct clk_hw *hw, unsigned long rate,
@@ -348,7 +348,7 @@ static int sky1_audss_div_set_rate(struct clk_hw *hw, unsigned long rate,
 
 static const struct clk_ops sky1_audss_div_ops = {
 	.recalc_rate = sky1_audss_div_recalc_rate,
-	.round_rate = sky1_audss_div_round_rate,
+	.determine_rate = sky1_audss_div_determine_rate,
 	.set_rate = sky1_audss_div_set_rate,
 };
 
@@ -656,14 +656,18 @@ static int sky1_audss_parse_clka(struct device *dev,
 	struct acpi_buffer output = {ACPI_ALLOCATE_BUFFER, NULL};
 	union acpi_object *out_obj, *entry, *el;
 	acpi_status status;
-	int i, count, registered = 0;
+	int i, count, registered = 0, ret = 0;
 
 	status = acpi_evaluate_object_typed(handle, "CLKA", NULL, &output,
 					    ACPI_TYPE_PACKAGE);
-	if (status == AE_NOT_FOUND)
-		return 0;
-	if (ACPI_FAILURE(status))
-		return -ENODEV;
+	if (status == AE_NOT_FOUND) {
+		ret = 0;
+		goto out_free;
+	}
+	if (ACPI_FAILURE(status)) {
+		ret = -ENODEV;
+		goto out_free;
+	}
 
 	out_obj = output.pointer;
 	count = out_obj->package.count;
@@ -724,9 +728,12 @@ static int sky1_audss_parse_clka(struct device *dev,
 		acpi_dev_put(adev);
 	}
 
-	kfree(output.pointer);
 	dev_info(dev, "CLKA: registered %d clkdev entries\n", registered);
-	return 0;
+	ret = 0;
+
+out_free:
+	ACPI_FREE(output.pointer);
+	return ret;
 }
 #endif
 
@@ -803,6 +810,8 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 
 	priv->clk_data->num = AUDSS_MAX_CLKS;
 	clk_table = priv->clk_data->hws;
+	for (i = 0; i < AUDSS_MAX_CLKS; i++)
+		clk_table[i] = ERR_PTR(-ENOENT);
 
 	platform_set_drvdata(pdev, priv);
 
@@ -891,12 +900,27 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 	clk_table[CLK_AUD_CLK4_DIV2] =
 		devm_clk_hw_register_fixed_factor(dev, "audio_clk4_div2",
 						  "audio_clk4", CLK_GET_RATE_NOCACHE, 1, 2);
+	if (IS_ERR(clk_table[CLK_AUD_CLK4_DIV2])) {
+		ret = PTR_ERR(clk_table[CLK_AUD_CLK4_DIV2]);
+		dev_err(dev, "failed to register audio_clk4_div2: %d\n", ret);
+		goto err_rcsu;
+	}
 	clk_table[CLK_AUD_CLK4_DIV4] =
 		devm_clk_hw_register_fixed_factor(dev, "audio_clk4_div4",
 						  "audio_clk4", CLK_GET_RATE_NOCACHE, 1, 4);
+	if (IS_ERR(clk_table[CLK_AUD_CLK4_DIV4])) {
+		ret = PTR_ERR(clk_table[CLK_AUD_CLK4_DIV4]);
+		dev_err(dev, "failed to register audio_clk4_div4: %d\n", ret);
+		goto err_rcsu;
+	}
 	clk_table[CLK_AUD_CLK5_DIV2] =
 		devm_clk_hw_register_fixed_factor(dev, "audio_clk5_div2",
 						  "audio_clk5", CLK_GET_RATE_NOCACHE, 1, 2);
+	if (IS_ERR(clk_table[CLK_AUD_CLK5_DIV2])) {
+		ret = PTR_ERR(clk_table[CLK_AUD_CLK5_DIV2]);
+		dev_err(dev, "failed to register audio_clk5_div2: %d\n", ret);
+		goto err_rcsu;
+	}
 
 	/* Register composite clocks */
 	for (i = 0; i < ARRAY_SIZE(audss_clks); i++) {
