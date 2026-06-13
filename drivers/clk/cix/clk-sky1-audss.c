@@ -39,6 +39,7 @@
 #define SKY1_AUDSS_RCSU_TIMEOUT_VAL	0x78
 
 #define SKY1_AUDSS_CLKS_NUM		6
+#define SKY1_AUDSS_REG_SAVE_NUM		5
 
 static DEFINE_SPINLOCK(sky1_audss_lock);
 
@@ -65,8 +66,9 @@ struct sky1_audss_priv {
 	struct clk *parent_clks[SKY1_AUDSS_CLKS_NUM];
 	struct reset_control *rst_noc;
 	struct clk_hw_onecell_data *clk_data;
-	u32 reg_save[ARRAY_SIZE(sky1_audss_reg_save)][2];
+	u32 reg_save[SKY1_AUDSS_REG_SAVE_NUM][2];
 	bool acpi_powered;
+	bool reset_deasserted;
 };
 
 /* Clock configuration structures */
@@ -572,7 +574,7 @@ static void sky1_audss_clks_disable(struct sky1_audss_priv *priv)
 static int __maybe_unused sky1_audss_clk_runtime_suspend(struct device *dev)
 {
 	struct sky1_audss_priv *priv = dev_get_drvdata(dev);
-	int i;
+	int i, ret;
 
 	if (!pm_runtime_active(dev))
 		return 0;
@@ -853,6 +855,7 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 		reset_control_assert(priv->rst_noc);
 		goto err_clks;
 	}
+	priv->reset_deasserted = true;
 
 	/* Map RCSU for DSP initialization */
 	{
@@ -945,6 +948,10 @@ err_rcsu:
 	if (priv->rcsu_base && !priv->rcsu_base_devm)
 		iounmap(priv->rcsu_base);
 err_clks:
+	if (priv->reset_deasserted) {
+		reset_control_assert(priv->rst_noc);
+		priv->reset_deasserted = false;
+	}
 	sky1_audss_clks_disable(priv);
 err_pm:
 	if (priv->acpi_powered &&
@@ -962,6 +969,11 @@ static void sky1_audss_clk_remove(struct platform_device *pdev)
 
 	if (priv->rcsu_base && !priv->rcsu_base_devm)
 		iounmap(priv->rcsu_base);
+
+	if (priv->reset_deasserted) {
+		reset_control_assert(priv->rst_noc);
+		priv->reset_deasserted = false;
+	}
 
 	/* Force suspend if not already suspended */
 	if (!pm_runtime_status_suspended(dev)) {

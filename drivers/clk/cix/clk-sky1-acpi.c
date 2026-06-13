@@ -150,8 +150,11 @@ static acpi_status sky1_clkt_walk_cb(acpi_handle handle, u32 level,
 		consumer_name = acpi_dev_name(adev);
 		ret = sky1_parse_clkt_entry(priv, consumer_name, e);
 parsed:
-		if (ret && ret != -EINVAL)
+		if (ret && ret != -EINVAL) {
 			dev_dbg(priv->dev, "CLKT entry skipped for %s: %d\n", consumer_name, ret);
+			if (!priv->err)
+				priv->err = ret;
+		}
 	}
 
 out:
@@ -178,6 +181,10 @@ static int sky1_acpi_clk_probe(struct platform_device *pdev)
 	if (ACPI_FAILURE(status))
 		return dev_err_probe(&pdev->dev, -ENODEV,
 				     "ACPI namespace walk failed\n");
+
+	if (priv->err)
+		return dev_err_probe(&pdev->dev, priv->err,
+				     "ACPI CLKT mapping incomplete\n");
 
 	if (priv->mapped == 0) {
 		if (priv->entries == 0)
