@@ -64,6 +64,8 @@ struct sky1_audss_priv {
 	struct clk *parent_clks[SKY1_AUDSS_CLKS_NUM];
 	struct reset_control *rst_noc;
 	struct clk_hw_onecell_data *clk_data;
+	u32 reg_save[ARRAY_SIZE(sky1_audss_reg_save)][2];
+	bool acpi_powered;
 };
 
 /* Clock configuration structures */
@@ -389,7 +391,6 @@ static int sky1_audss_gate_prepare(struct clk_hw *hw)
 		return ret;
 	}
 
-	sky1_audss_gate_endisable(hw, 1);
 	return 0;
 }
 
@@ -402,7 +403,6 @@ static void sky1_audss_gate_unprepare(struct clk_hw *hw)
 	struct clk_gate *gate = to_clk_gate(hw);
 	struct sky1_clk_gate *sky1_gate = container_of(gate, struct sky1_clk_gate, gate);
 
-	sky1_audss_gate_endisable(hw, 0);
 	pm_runtime_put(sky1_gate->dev);
 }
 
@@ -416,6 +416,7 @@ static int sky1_audss_gate_enable(struct clk_hw *hw)
 	struct sky1_clk_gate *sky1_gate = container_of(gate, struct sky1_clk_gate, gate);
 
 	dev_dbg(sky1_gate->dev, "gate_enable: bit %d\n", gate->bit_idx);
+	sky1_audss_gate_endisable(hw, 1);
 	return 0;
 }
 
@@ -425,6 +426,7 @@ static int sky1_audss_gate_enable(struct clk_hw *hw)
  */
 static void sky1_audss_gate_disable(struct clk_hw *hw)
 {
+	sky1_audss_gate_endisable(hw, 0);
 }
 
 static int sky1_audss_gate_is_enabled(struct clk_hw *hw)
@@ -444,7 +446,8 @@ static int sky1_audss_gate_is_enabled(struct clk_hw *hw)
 static const struct clk_ops sky1_audss_gate_ops = {
 	.prepare = sky1_audss_gate_prepare,
 	.unprepare = sky1_audss_gate_unprepare,
-	/* Gate RMW uses regmap and can sleep; use prepare/unprepare only. */
+	.enable = sky1_audss_gate_enable,
+	.disable = sky1_audss_gate_disable,
 	.is_enabled = sky1_audss_gate_is_enabled,
 };
 
@@ -565,9 +568,10 @@ static int __maybe_unused sky1_audss_clk_runtime_suspend(struct device *dev)
 	int i;
 
 	/* Save register state before power down */
-	for (i = 0; i < ARRAY_SIZE(sky1_audss_reg_save); i++)
-		regmap_read(priv->regmap, sky1_audss_reg_save[i][0],
-			    &sky1_audss_reg_save[i][1]);
+	for (i = 0; i < ARRAY_SIZE(sky1_audss_reg_save); i++) {
+		priv->reg_save[i][0] = sky1_audss_reg_save[i][0];
+		regmap_read(priv->regmap, priv->reg_save[i][0], &priv->reg_save[i][1]);
+	}
 
 	reset_control_assert(priv->rst_noc);
 	sky1_audss_clks_disable(priv);
@@ -598,8 +602,7 @@ static int __maybe_unused sky1_audss_clk_runtime_resume(struct device *dev)
 
 	/* Restore register state */
 	for (i = 0; i < ARRAY_SIZE(sky1_audss_reg_save); i++)
-		regmap_write(priv->regmap, sky1_audss_reg_save[i][0],
-			     sky1_audss_reg_save[i][1]);
+		regmap_write(priv->regmap, priv->reg_save[i][0], priv->reg_save[i][1]);
 
 	return 0;
 }
@@ -908,6 +911,8 @@ err_rcsu:
 err_clks:
 	sky1_audss_clks_disable(priv);
 err_pm:
+	if (priv->acpi_powered)
+		acpi_device_set_power(ACPI_COMPANION(dev), ACPI_STATE_D3_COLD);
 	pm_runtime_put_noidle(dev);
 	pm_runtime_disable(dev);
 	return ret;
@@ -925,6 +930,8 @@ static void sky1_audss_clk_remove(struct platform_device *pdev)
 	if (!pm_runtime_status_suspended(dev))
 		pm_runtime_force_suspend(dev);
 
+	if (priv->acpi_powered)
+		acpi_device_set_power(ACPI_COMPANION(dev), ACPI_STATE_D3_COLD);
 	pm_runtime_put_noidle(dev);
 	pm_runtime_disable(dev);
 }
