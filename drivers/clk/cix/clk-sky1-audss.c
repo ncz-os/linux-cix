@@ -60,6 +60,7 @@ struct sky1_audss_priv {
 	struct device *dev;
 	struct regmap *regmap;
 	void __iomem *rcsu_base;
+	bool rcsu_base_devm;
 	struct clk *parent_clks[SKY1_AUDSS_CLKS_NUM];
 	struct reset_control *rst_noc;
 	struct clk_hw_onecell_data *clk_data;
@@ -388,6 +389,7 @@ static int sky1_audss_gate_prepare(struct clk_hw *hw)
 		return ret;
 	}
 
+	sky1_audss_gate_endisable(hw, 1);
 	return 0;
 }
 
@@ -400,6 +402,7 @@ static void sky1_audss_gate_unprepare(struct clk_hw *hw)
 	struct clk_gate *gate = to_clk_gate(hw);
 	struct sky1_clk_gate *sky1_gate = container_of(gate, struct sky1_clk_gate, gate);
 
+	sky1_audss_gate_endisable(hw, 0);
 	pm_runtime_put(sky1_gate->dev);
 }
 
@@ -413,7 +416,6 @@ static int sky1_audss_gate_enable(struct clk_hw *hw)
 	struct sky1_clk_gate *sky1_gate = container_of(gate, struct sky1_clk_gate, gate);
 
 	dev_dbg(sky1_gate->dev, "gate_enable: bit %d\n", gate->bit_idx);
-	sky1_audss_gate_endisable(hw, 1);
 	return 0;
 }
 
@@ -423,7 +425,6 @@ static int sky1_audss_gate_enable(struct clk_hw *hw)
  */
 static void sky1_audss_gate_disable(struct clk_hw *hw)
 {
-	sky1_audss_gate_endisable(hw, 0);
 }
 
 static int sky1_audss_gate_is_enabled(struct clk_hw *hw)
@@ -443,8 +444,7 @@ static int sky1_audss_gate_is_enabled(struct clk_hw *hw)
 static const struct clk_ops sky1_audss_gate_ops = {
 	.prepare = sky1_audss_gate_prepare,
 	.unprepare = sky1_audss_gate_unprepare,
-	.enable = sky1_audss_gate_enable,
-	.disable = sky1_audss_gate_disable,
+	/* Gate RMW uses regmap and can sleep; use prepare/unprepare only. */
 	.is_enabled = sky1_audss_gate_is_enabled,
 };
 
@@ -819,10 +819,13 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 		struct resource *res;
 
 		res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
-		if (res)
+		if (res) {
 			priv->rcsu_base = devm_ioremap_resource(dev, res);
-		else
+			priv->rcsu_base_devm = true;
+		} else {
 			priv->rcsu_base = ioremap(SKY1_AUDSS_RCSU_ADDR, SKY1_AUDSS_RCSU_LEN);
+			priv->rcsu_base_devm = false;
+		}
 		if (IS_ERR_OR_NULL(priv->rcsu_base)) {
 			ret = priv->rcsu_base ? PTR_ERR(priv->rcsu_base) : -ENOMEM;
 			goto err_clks;
@@ -900,7 +903,7 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 	return 0;
 
 err_rcsu:
-	if (priv->rcsu_base)
+	if (priv->rcsu_base && !priv->rcsu_base_devm)
 		iounmap(priv->rcsu_base);
 err_clks:
 	sky1_audss_clks_disable(priv);
@@ -915,7 +918,7 @@ static void sky1_audss_clk_remove(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct sky1_audss_priv *priv = platform_get_drvdata(pdev);
 
-	if (priv->rcsu_base)
+	if (priv->rcsu_base && !priv->rcsu_base_devm)
 		iounmap(priv->rcsu_base);
 
 	/* Force suspend if not already suspended */
