@@ -20,6 +20,7 @@
 #include <linux/acpi.h>
 #include <linux/clk.h>
 #include <linux/clkdev.h>
+#include <linux/devm-helpers.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 
@@ -30,9 +31,17 @@ struct sky1_acpi_clk {
 	int err;
 };
 
+struct sky1_clkdev_lookup {
+	struct clk_lookup *lookup;
+	struct clk *clk;
+};
+
 static void sky1_clkdev_drop(void *data)
 {
-	clkdev_drop(data);
+	struct sky1_clkdev_lookup *entry = data;
+
+	clkdev_drop(entry->lookup);
+	clk_put(entry->clk);
 }
 
 static int sky1_parse_clkt_entry(struct sky1_acpi_clk *priv,
@@ -45,6 +54,7 @@ static int sky1_parse_clkt_entry(struct sky1_acpi_clk *priv,
 	char scmi_id[32];
 	struct clk *clk;
 	struct clk_lookup *cl;
+	struct sky1_clkdev_lookup *lookup;
 	int ret;
 
 	if (entry->type != ACPI_TYPE_PACKAGE || entry->package.count < 2)
@@ -78,18 +88,31 @@ static int sky1_parse_clkt_entry(struct sky1_acpi_clk *priv,
 		return ret == -ENOENT ? -EPROBE_DEFER : ret;
 	}
 
-	/* Register consumer lookup */
+	/* Register consumer lookup. clkdev keeps this clk pointer but does not
+	 * own a reference, so retain ours until the devm cleanup drops the
+	 * lookup.
+	 */
 	cl = clkdev_create(clk, con_id, "%s", consumer_name);
-	clk_put(clk);
 	if (IS_ERR_OR_NULL(cl)) {
+		ret = cl ? PTR_ERR(cl) : -ENOMEM;
+		clk_put(clk);
 		dev_warn(priv->dev,
 			 "Failed to create clkdev for %s clock %llu\n",
 			 consumer_name, clock_id);
-		return cl ? PTR_ERR(cl) : -ENOMEM;
+		return ret;
 	}
 
+	lookup = devm_kzalloc(priv->dev, sizeof(*lookup), GFP_KERNEL);
+	if (!lookup) {
+		clkdev_drop(cl);
+		clk_put(clk);
+		return -ENOMEM;
+	}
+	lookup->lookup = cl;
+	lookup->clk = clk;
+
 	/* Auto-cleanup on device removal */
-	ret = devm_add_action_or_reset(priv->dev, sky1_clkdev_drop, cl);
+	ret = devm_add_action_or_reset(priv->dev, sky1_clkdev_drop, lookup);
 	if (ret)
 		return ret;
 
