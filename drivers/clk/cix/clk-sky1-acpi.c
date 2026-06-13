@@ -76,11 +76,11 @@ static int sky1_parse_clkt_entry(struct sky1_acpi_clk *priv,
 	/* Register consumer lookup */
 	cl = clkdev_create(clk, con_id, "%s", consumer_name);
 	clk_put(clk);
-	if (!cl) {
+	if (IS_ERR_OR_NULL(cl)) {
 		dev_warn(priv->dev,
 			 "Failed to create clkdev for %s clock %llu\n",
 			 consumer_name, clock_id);
-		return -ENOMEM;
+		return cl ? PTR_ERR(cl) : -ENOMEM;
 	}
 
 	/* Auto-cleanup on device removal */
