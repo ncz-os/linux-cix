@@ -568,7 +568,7 @@ static int __maybe_unused sky1_audss_clk_runtime_suspend(struct device *dev)
 	int i;
 
 	if (!pm_runtime_active(dev))
-		return -EBUSY;
+		return 0;
 
 	/* Save register state before power down */
 	for (i = 0; i < ARRAY_SIZE(sky1_audss_reg_save); i++) {
@@ -598,6 +598,11 @@ static int __maybe_unused sky1_audss_clk_runtime_resume(struct device *dev)
 	if (ret) {
 		sky1_audss_clks_disable(priv);
 		return ret;
+	}
+
+	if (!priv->rcsu_base) {
+		sky1_audss_clks_disable(priv);
+		return -ENODEV;
 	}
 
 	/* Restore RCSU remap */
@@ -823,8 +828,10 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 		goto err_clks;
 	usleep_range(1, 2);
 	ret = reset_control_deassert(priv->rst_noc);
-	if (ret)
+	if (ret) {
+		reset_control_deassert(priv->rst_noc);
 		goto err_clks;
+	}
 
 	/* Map RCSU for DSP initialization */
 	{
