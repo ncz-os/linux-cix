@@ -768,8 +768,9 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 		struct resource *res;
 
 		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-		if (res)
-			priv->reg_base = devm_ioremap_resource(dev, res);
+		if (!res)
+			return dev_err_probe(dev, -ENODEV, "missing AUDSS CRU resource\n");
+		priv->reg_base = devm_ioremap_resource(dev, res);
 		if (IS_ERR(priv->reg_base))
 			return PTR_ERR(priv->reg_base);
 	}
@@ -846,7 +847,7 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 	usleep_range(1, 2);
 	ret = reset_control_deassert(priv->rst_noc);
 	if (ret) {
-		reset_control_deassert(priv->rst_noc);
+		reset_control_assert(priv->rst_noc);
 		goto err_clks;
 	}
 

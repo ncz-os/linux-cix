@@ -507,7 +507,12 @@ static int scmi_clocks_probe(struct scmi_device *sdev)
 		if (!hws[idx])
 			continue;
 
-		snprintf(con_id, sizeof(con_id), "scmi-clk-%d", idx);
+		err = snprintf(con_id, sizeof(con_id), "scmi-clk-%d", idx);
+		if (err < 0 || err >= sizeof(con_id)) {
+			if (!first_err)
+				first_err = err < 0 ? err : -EINVAL;
+			continue;
+		}
 		err = devm_clk_hw_register_clkdev(dev, hws[idx], con_id, NULL);
 		if (err) {
 			dev_warn(dev,
