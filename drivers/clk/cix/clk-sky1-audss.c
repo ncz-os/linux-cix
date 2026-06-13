@@ -567,6 +567,9 @@ static int __maybe_unused sky1_audss_clk_runtime_suspend(struct device *dev)
 	struct sky1_audss_priv *priv = dev_get_drvdata(dev);
 	int i;
 
+	if (!pm_runtime_active(dev))
+		return -EBUSY;
+
 	/* Save register state before power down */
 	for (i = 0; i < ARRAY_SIZE(sky1_audss_reg_save); i++) {
 		priv->reg_save[i][0] = sky1_audss_reg_save[i][0];
@@ -718,16 +721,21 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 	priv->dev = dev;
 
 	/* Get regmap from parent syscon */
+	priv->regmap = ERR_PTR(-ENODEV);
 	parent_np = of_get_parent(dev->of_node);
-	priv->regmap = syscon_node_to_regmap(parent_np);
-	of_node_put(parent_np);
+	if (parent_np) {
+		priv->regmap = syscon_node_to_regmap(parent_np);
+		of_node_put(parent_np);
+	}
 
 	if (IS_ERR(priv->regmap) && has_acpi_companion(dev)) {
 		struct fwnode_handle *fw;
 		struct device *syscon_dev;
 
 		fw = fwnode_find_reference(dev_fwnode(dev), "audss_cru", 0);
-		if (!IS_ERR(fw)) {
+		if (IS_ERR(fw)) {
+			priv->regmap = ERR_PTR(PTR_ERR(fw));
+		} else {
 			syscon_dev = bus_find_device_by_fwnode(
 					&platform_bus_type, fw);
 			fwnode_handle_put(fw);
@@ -786,6 +794,7 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 			dev_err(dev, "ACPI D0 transition failed: %d\n", ret);
 			goto err_pm;
 		}
+		priv->acpi_powered = true;
 	}
 
 	/* Enable parent clocks and set default rates */
@@ -911,8 +920,9 @@ err_rcsu:
 err_clks:
 	sky1_audss_clks_disable(priv);
 err_pm:
-	if (priv->acpi_powered)
-		acpi_device_set_power(ACPI_COMPANION(dev), ACPI_STATE_D3_COLD);
+	if (priv->acpi_powered &&
+	    !acpi_device_set_power(ACPI_COMPANION(dev), ACPI_STATE_D3_COLD))
+		priv->acpi_powered = false;
 	pm_runtime_put_noidle(dev);
 	pm_runtime_disable(dev);
 	return ret;
@@ -930,8 +940,9 @@ static void sky1_audss_clk_remove(struct platform_device *pdev)
 	if (!pm_runtime_status_suspended(dev))
 		pm_runtime_force_suspend(dev);
 
-	if (priv->acpi_powered)
-		acpi_device_set_power(ACPI_COMPANION(dev), ACPI_STATE_D3_COLD);
+	if (priv->acpi_powered &&
+	    !acpi_device_set_power(ACPI_COMPANION(dev), ACPI_STATE_D3_COLD))
+		priv->acpi_powered = false;
 	pm_runtime_put_noidle(dev);
 	pm_runtime_disable(dev);
 }
