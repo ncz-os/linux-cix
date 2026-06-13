@@ -165,26 +165,26 @@ int cix_hdcp2_ioctl_get_dkey2(struct cix_hdcp *hdcp, void *kdata)
 #else
 int cix_hdcp2_ioctl_hw_init(struct cix_hdcp *hdcp)
 {
-	return 0;
+	return -EOPNOTSUPP;
 }
 
 int cix_hdcp2_ioctl_cipher_enable(struct cix_hdcp *hdcp, void *kdata)
 {
-	return 0;
+	return -EOPNOTSUPP;
 }
 
 int cix_hdcp2_cix_ioctl_cipher_disable(struct cix_hdcp *hdcp)
 {
-	return 0;
+	return -EOPNOTSUPP;
 }
 
 int cix_hdcp2_ioctl_get_kd(struct cix_hdcp *hdcp, void *kdata)
 {
-	return 0;
+	return -EOPNOTSUPP;
 }
 
 int cix_hdcp2_ioctl_get_dkey2(struct cix_hdcp *hdcp, void *kdata)
 {
-	return 0;
+	return -EOPNOTSUPP;
 }
 #endif

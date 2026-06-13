@@ -8,6 +8,7 @@
 #include <linux/nospec.h>
 #include <linux/fs.h>
 #include <linux/poll.h>
+#include <linux/capability.h>
 #include "cix_hdcp_ioctl.h"
 #include "cix_hdcp_ioctl_cmd.h"
 
@@ -29,6 +30,9 @@ static unsigned int cix_hdcp_ioctl_cmds[] = {
 int cix_hdcp_hpd_event_process(struct cix_hdcp *hdcp, bool plugged)
 {
 	struct hdcp_event *e;
+
+	if (!hdcp || !hdcp->aux)
+		return -ENODEV;
 
 	if (!hdcp->opened) {
 		if (plugged == true)
@@ -65,6 +69,9 @@ int cix_hdcp_timer_process(struct cix_hdcp *hdcp)
 {
 	struct hdcp_event *e;
 
+	if (!hdcp || !hdcp->aux)
+		return -ENODEV;
+
 	hdcp->timer_in_use = false;
 
 	e = kmalloc(sizeof(*e), GFP_KERNEL);
@@ -93,6 +100,9 @@ int cix_hdcp_cp_irq_process(struct cix_hdcp *hdcp, u8 rx_status)
 		{ 4, EV2_TX_INTEGRITY_FAILURE, "EV2_TX_INTEGRITY_FAILURE" },
 	};
 	int i;
+
+	if (!hdcp || !hdcp->aux)
+		return -ENODEV;
 
 	for (i = 0; i < ARRAY_SIZE(events); i++) {
 		struct hdcp_event *e;
@@ -145,6 +155,17 @@ static int cix_hdcp_open(struct inode *inode, struct file *filp)
 	mutex_unlock(&cix_hdcp_list_lock);
 
 	return ret;
+}
+
+static bool cix_hdcp_event_pending(struct cix_hdcp *hdcp)
+{
+	bool pending;
+
+	spin_lock_irq(&hdcp->event_lock);
+	pending = !list_empty(&hdcp->event_list) || !hdcp->aux;
+	spin_unlock_irq(&hdcp->event_lock);
+
+	return pending;
 }
 
 static int cix_hdcp_close(struct inode *inode, struct file *filp)
@@ -216,7 +237,7 @@ static ssize_t cix_hdcp_read(struct file *filp, char __user *buffer,
 			mutex_unlock(&hdcp->mutex);
 			ret = wait_event_interruptible(
 				hdcp->event_wait,
-				!list_empty(&hdcp->event_list));
+				cix_hdcp_event_pending(hdcp));
 			if (ret >= 0)
 				ret = mutex_lock_interruptible(&hdcp->mutex);
 			if (ret)
@@ -261,7 +282,9 @@ static __poll_t cix_hdcp_poll(struct file *filp, poll_table *wait)
 	poll_wait(filp, &hdcp->event_wait, wait);
 	mutex_lock(&hdcp->mutex);
 
-	if (!list_empty(&hdcp->event_list))
+	if (!hdcp->aux)
+		mask |= EPOLLERR | EPOLLHUP;
+	else if (!list_empty(&hdcp->event_list))
 		mask |= EPOLLIN | EPOLLRDNORM;
 
 	mutex_unlock(&hdcp->mutex);
@@ -282,6 +305,9 @@ static long cix_hdcp_ioctl(struct file *file, unsigned int ucmd,
 
 	if (!hdcp || !hdcp->aux)
 		return -ENODEV;
+
+	if (!capable(CAP_SYS_ADMIN))
+		return -EPERM;
 
 	if (_IOC_TYPE(ucmd) != CIX_HDCP_IOCTL_BASE)
 		return -ENOTTY;
@@ -385,6 +411,7 @@ int cix_hdcp_init(struct cix_hdcp *hdcp)
 	INIT_LIST_HEAD(&hdcp->event_list);
 	init_waitqueue_head(&hdcp->event_wait);
 	hdcp->misc.minor = MISC_DYNAMIC_MINOR;
+	hdcp->misc.mode = 0600;
 	hdcp->misc.name = hdcp->name;
 	hdcp->misc.fops = &hdcp_fops;
 
@@ -411,10 +438,10 @@ int cix_hdcp_uninit(struct cix_hdcp *hdcp)
 {
 	mutex_lock(&cix_hdcp_list_lock);
 	list_del(&hdcp->list);
+	hdcp->aux = NULL;
 	mutex_unlock(&cix_hdcp_list_lock);
 	misc_deregister(&hdcp->misc);
 	wake_up_interruptible_poll(&hdcp->event_wait, EPOLLERR | EPOLLHUP);
-	hdcp->aux = NULL;
 
 	return 0;
 }
