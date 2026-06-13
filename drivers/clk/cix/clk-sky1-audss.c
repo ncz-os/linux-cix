@@ -387,6 +387,8 @@ static int sky1_audss_gate_prepare(struct clk_hw *hw)
 		dev_err(sky1_gate->dev, "failed to resume for clock prepare: %d\n", ret);
 		return ret;
 	}
+
+	sky1_audss_gate_endisable(hw, 1);
 	return 0;
 }
 
@@ -399,6 +401,7 @@ static void sky1_audss_gate_unprepare(struct clk_hw *hw)
 	struct clk_gate *gate = to_clk_gate(hw);
 	struct sky1_clk_gate *sky1_gate = container_of(gate, struct sky1_clk_gate, gate);
 
+	sky1_audss_gate_endisable(hw, 0);
 	pm_runtime_put(sky1_gate->dev);
 }
 
@@ -412,7 +415,6 @@ static int sky1_audss_gate_enable(struct clk_hw *hw)
 	struct sky1_clk_gate *sky1_gate = container_of(gate, struct sky1_clk_gate, gate);
 
 	dev_dbg(sky1_gate->dev, "gate_enable: bit %d\n", gate->bit_idx);
-	sky1_audss_gate_endisable(hw, 1);
 	return 0;
 }
 
@@ -422,7 +424,6 @@ static int sky1_audss_gate_enable(struct clk_hw *hw)
  */
 static void sky1_audss_gate_disable(struct clk_hw *hw)
 {
-	sky1_audss_gate_endisable(hw, 0);
 }
 
 static int sky1_audss_gate_is_enabled(struct clk_hw *hw)
@@ -472,7 +473,7 @@ static struct clk_hw *sky1_audss_clk_register(struct device *dev,
 		return ERR_PTR(-ENOMEM);
 
 	for (i = 0; i < num_parents; i++)
-		pdata[i].fw_name = parent_names[i];
+		pdata[i].name = parent_names[i];
 
 	if (mux_cfg->offset >= 0) {
 		sky1_mux = devm_kzalloc(dev, sizeof(*sky1_mux), GFP_KERNEL);
@@ -586,8 +587,10 @@ static int __maybe_unused sky1_audss_clk_runtime_resume(struct device *dev)
 
 	/* Release NOC reset */
 	ret = reset_control_deassert(priv->rst_noc);
-	if (ret)
+	if (ret) {
+		sky1_audss_clks_disable(priv);
 		return ret;
+	}
 
 	/* Restore RCSU remap */
 	writel(SKY1_AUDSS_RCSU_REMAP_VAL, priv->rcsu_base + SKY1_AUDSS_RCSU_REMAP);
