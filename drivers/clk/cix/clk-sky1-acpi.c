@@ -65,7 +65,7 @@ static int sky1_parse_clkt_entry(struct sky1_acpi_clk *priv,
 		con_id = NULL;
 
 	/* Look up the SCMI clock by its clkdev registration name */
-	snprintf(scmi_id, sizeof(scmi_id), "scmi-clk-%llu", clock_id);
+	snprintf(scmi_id, sizeof(scmi_id), "scmi-clk-%llu", (unsigned long long)clock_id);
 	clk = clk_get(NULL, scmi_id);
 	if (IS_ERR(clk)) {
 		dev_dbg(priv->dev, "SCMI clock %llu not available for %s\n",

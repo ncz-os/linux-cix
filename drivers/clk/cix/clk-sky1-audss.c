@@ -569,6 +569,7 @@ static int __maybe_unused sky1_audss_clk_runtime_suspend(struct device *dev)
 		regmap_read(priv->regmap, sky1_audss_reg_save[i][0],
 			    &sky1_audss_reg_save[i][1]);
 
+	reset_control_assert(priv->rst_noc);
 	sky1_audss_clks_disable(priv);
 
 	return 0;
@@ -797,9 +798,13 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 		goto err_clks;
 	}
 
-	reset_control_assert(priv->rst_noc);
+	ret = reset_control_assert(priv->rst_noc);
+	if (ret)
+		goto err_clks;
 	usleep_range(1, 2);
-	reset_control_deassert(priv->rst_noc);
+	ret = reset_control_deassert(priv->rst_noc);
+	if (ret)
+		goto err_clks;
 
 	/* Map RCSU for DSP initialization */
 	priv->rcsu_base = ioremap(SKY1_AUDSS_RCSU_ADDR, SKY1_AUDSS_RCSU_LEN);

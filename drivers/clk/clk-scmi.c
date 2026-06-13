@@ -399,7 +399,7 @@ scmi_clk_ops_select(struct scmi_clk *sclk, bool atomic_capable,
 
 static int scmi_clocks_probe(struct scmi_device *sdev)
 {
-	int idx, count, err;
+	int idx, count, err, registered = 0;
 	unsigned int atomic_threshold_us;
 	bool transport_is_atomic;
 	struct clk_hw **hws;
@@ -501,8 +501,6 @@ static int scmi_clocks_probe(struct scmi_device *sdev)
 						   clk_data);
 
 	/* ACPI: register each clock via clkdev for global lookup */
-	int registered = 0;
-
 	for (idx = 0; idx < count; idx++) {
 		char con_id[20];
 

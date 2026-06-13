@@ -572,7 +572,8 @@ static struct backlight_device *acpi_find_backlight(struct device *dev)
 
 	np = fwnode_find_reference(dev->fwnode, "backlight", 0);
 	if (!IS_ERR(np)) {
-		bd = backlight_device_get_by_name(dev_name(&to_acpi_device_node(np)->dev));
+		if (is_acpi_device_node(np))
+			bd = backlight_device_get_by_name(dev_name(&to_acpi_device_node(np)->dev));
 		fwnode_handle_put(np);
 		if (!bd)
 			return ERR_PTR(-EPROBE_DEFER);
