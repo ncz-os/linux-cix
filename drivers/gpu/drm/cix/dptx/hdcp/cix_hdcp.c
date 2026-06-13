@@ -185,8 +185,6 @@ static int cix_hdcp_close(struct inode *inode, struct file *filp)
 			list_del(&e->list);
 			kfree(e);
 		} else {
-			dev_info(hdcp->aux->dev,
-				 "event list is null and close\n");
 			spin_unlock_irq(&hdcp->event_lock);
 			break;
 		}
@@ -327,6 +325,8 @@ static long cix_hdcp_ioctl(struct file *file, unsigned int ucmd,
 
 	/* Figure out the delta between user cmd size and kernel cmd size */
 	drv_size = _IOC_SIZE(kcmd);
+	if (_IOC_SIZE(ucmd) != drv_size)
+		return -EINVAL;
 	out_size = _IOC_SIZE(ucmd);
 	in_size = out_size;
 	if ((ucmd & kcmd & IOC_IN) == 0)
@@ -421,17 +421,13 @@ int cix_hdcp_init(struct cix_hdcp *hdcp)
 	hdcp->misc.name = hdcp->name;
 	hdcp->misc.fops = &hdcp_fops;
 
-	mutex_lock(&cix_hdcp_list_lock);
-	list_add(&hdcp->list, &cix_hdcp_list);
-	mutex_unlock(&cix_hdcp_list_lock);
-
 	ret = misc_register(&hdcp->misc);
 	if (!ret) {
+		mutex_lock(&cix_hdcp_list_lock);
+		list_add(&hdcp->list, &cix_hdcp_list);
+		mutex_unlock(&cix_hdcp_list_lock);
 		dev_info(dev, "succeed register hdcp misc device.\n");
 	} else {
-		mutex_lock(&cix_hdcp_list_lock);
-		list_del(&hdcp->list);
-		mutex_unlock(&cix_hdcp_list_lock);
 		dev_err(dev, "cannot register hdcp misc device, ret=%d.\n",
 			ret);
 		return ret;

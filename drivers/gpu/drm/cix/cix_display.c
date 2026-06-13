@@ -128,64 +128,9 @@ static int cix_display_probe(struct platform_device *pdev)
        return 0;
 }
 
-static struct cix_acpi_display cix_acpi_display;
-static int __init cix_acpi_display_probe(void)
-{
-       void *base;
-       int i, ret;
-       u32 control, value, count;
-       struct cix_acpi_display *cix_display = &cix_acpi_display;
-       memset(cix_display, 0, sizeof(*cix_display));
-       control = 4;
-
-       cix_display->reset_mask[0] = DISPLAY0_RESET_MASK;
-       cix_display->reset_mask[1] = DISPLAY1_RESET_MASK;
-       cix_display->reset_mask[2] = DISPLAY2_RESET_MASK;
-       cix_display->reset_mask[3] = DISPLAY3_RESET_MASK;
-       cix_display->reset_mask[4] = DISPLAY4_RESET_MASK;
-
-       base = ioremap(DISPLAY_RESET_REG, 0x4);
-       if (!base)
-               return -ENOMEM;
-
-       value = readl(base);
-
-       count = 0;
-       for (i = 0; i < 5; i++) {
-               cix_display->reset_need[i] = (control >> i) & 0x1;
-               if (cix_display->reset_need[i]) {
-                       count++;
-                       value &= (~cix_display->reset_mask[i]);
-               }
-       }
-
-        if (count) {
-                value &= (~MMHUB_RESET_MASK);
-                writel(value, base);
-        }
-
-       for (i = 0; i < 5; i++) {
-               if (cix_display->reset_need[i]) {
-                       value |= cix_display->reset_mask[i];
-               }
-       }
-
-        if (count) {
-                value |= MMHUB_RESET_MASK;
-                writel(value, base);
-        }
-
-       value = readl(base);
-
-       iounmap(base);
-
-       return 0;
-}
-
 
 static void cix_acpi_display_cleanup(void)
 {
-       memset(&cix_acpi_display, 0, sizeof(cix_acpi_display));
 }
 
 static void cix_display_remove(struct platform_device *pdev)
