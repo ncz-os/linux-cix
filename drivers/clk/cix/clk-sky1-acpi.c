@@ -182,7 +182,7 @@ static int sky1_acpi_clk_probe(struct platform_device *pdev)
 		return dev_err_probe(&pdev->dev, -ENODEV,
 				     "ACPI namespace walk failed\n");
 
-	if (priv->err && priv->mapped == 0)
+	if (priv->err)
 		return dev_err_probe(&pdev->dev, priv->err,
 				     "ACPI CLKT mapping incomplete\n");
 

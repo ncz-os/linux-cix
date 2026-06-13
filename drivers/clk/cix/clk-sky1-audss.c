@@ -66,6 +66,7 @@ struct sky1_audss_priv {
 	struct clk *parent_clks[SKY1_AUDSS_CLKS_NUM];
 	struct reset_control *rst_noc;
 	struct clk_hw_onecell_data *clk_data;
+	u32 gate_refcnt[32];
 	u32 reg_save[SKY1_AUDSS_REG_SAVE_NUM][2];
 	bool acpi_powered;
 	bool reset_deasserted;
@@ -112,6 +113,7 @@ struct sky1_clk_divider {
 struct sky1_clk_gate {
 	struct clk_gate gate;
 	void __iomem *reg_base;
+	u32 *gate_refcnt;
 	struct device *dev;
 	int offset;
 };
@@ -355,27 +357,34 @@ static void sky1_audss_gate_endisable(struct clk_hw *hw, int enable)
 {
 	struct clk_gate *gate = to_clk_gate(hw);
 	struct sky1_clk_gate *sky1_gate = container_of(gate, struct sky1_clk_gate, gate);
-	int set = gate->flags & CLK_GATE_SET_TO_DISABLE ? 1 : 0;
+	bool set_to_disable = gate->flags & CLK_GATE_SET_TO_DISABLE;
 	unsigned long flags;
 	u32 reg;
 
-	set ^= enable;
-
-	if (!sky1_gate->reg_base)
+	if (!sky1_gate->reg_base || !sky1_gate->gate_refcnt)
 		return;
 
 	if (gate->lock)
 		spin_lock_irqsave(gate->lock, flags);
 
-	reg = readl(sky1_gate->reg_base + sky1_gate->offset);
+	if (enable) {
+		if (sky1_gate->gate_refcnt[gate->bit_idx]++ > 0)
+			goto out_unlock;
+	} else {
+		if (sky1_gate->gate_refcnt[gate->bit_idx] == 0)
+			goto out_unlock;
+		if (--sky1_gate->gate_refcnt[gate->bit_idx] > 0)
+			goto out_unlock;
+	}
 
-	if (set)
+	reg = readl(sky1_gate->reg_base + sky1_gate->offset);
+	if (enable ^ set_to_disable)
 		reg |= BIT(gate->bit_idx);
 	else
 		reg &= ~BIT(gate->bit_idx);
-
 	writel(reg, sky1_gate->reg_base + sky1_gate->offset);
 
+out_unlock:
 	if (gate->lock)
 		spin_unlock_irqrestore(gate->lock, flags);
 }
@@ -524,6 +533,7 @@ static struct clk_hw *sky1_audss_clk_register(struct device *dev,
 		sky1_gate->gate.flags = gate_cfg->flags;
 		sky1_gate->gate.lock = &sky1_audss_lock;
 		sky1_gate->reg_base = ((struct sky1_audss_priv *)dev_get_drvdata(dev))->reg_base;
+		sky1_gate->gate_refcnt = ((struct sky1_audss_priv *)dev_get_drvdata(dev))->gate_refcnt;
 		sky1_gate->offset = gate_cfg->offset;
 		sky1_gate->dev = dev;
 		gate_ops = &sky1_audss_gate_ops;
