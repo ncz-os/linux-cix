@@ -856,13 +856,12 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 		struct resource *res;
 
 		res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
-		if (res) {
-			priv->rcsu_base = devm_ioremap_resource(dev, res);
-			priv->rcsu_base_devm = true;
-		} else {
-			priv->rcsu_base = ioremap(SKY1_AUDSS_RCSU_ADDR, SKY1_AUDSS_RCSU_LEN);
-			priv->rcsu_base_devm = false;
+		if (!res) {
+			ret = -ENODEV;
+			goto err_clks;
 		}
+		priv->rcsu_base = devm_ioremap_resource(dev, res);
+		priv->rcsu_base_devm = true;
 		if (IS_ERR_OR_NULL(priv->rcsu_base)) {
 			ret = priv->rcsu_base ? PTR_ERR(priv->rcsu_base) : -ENOMEM;
 			goto err_clks;

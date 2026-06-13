@@ -155,7 +155,8 @@ parsed:
 	}
 
 out:
-	acpi_dev_put(adev);
+	if (adev)
+		acpi_dev_put(adev);
 	kfree(buf.pointer);
 	return AE_OK;
 }
@@ -178,8 +179,12 @@ static int sky1_acpi_clk_probe(struct platform_device *pdev)
 		return dev_err_probe(&pdev->dev, -ENODEV,
 				     "ACPI namespace walk failed\n");
 
-	if (priv->mapped == 0)
-		return 0;
+	if (priv->mapped == 0) {
+		if (priv->entries == 0)
+			return 0;
+		return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
+				     "No SCMI clocks mapped yet\n");
+	}
 
 	dev_info(&pdev->dev, "Mapped %d ACPI clock lookup entries\n",
 		 priv->mapped);
