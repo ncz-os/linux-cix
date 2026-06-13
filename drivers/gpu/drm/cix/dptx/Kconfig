@@ -1,7 +1,7 @@
 #SPDX - License - Identifier : GPL - 2.0 - only
 config DRM_TRILIN_DPSUB
 	tristate "Trilinear Technologies DisplayPort Controller Driver"
-	depends on COMMON_CLK && DRM && OF
+	depends on COMMON_CLK && DRM && (OF || ACPI)
 	select DRM_KMS_HELPER
 	select DRM_DISPLAY_HELPER
 	select DRM_DISPLAY_DP_HELPER

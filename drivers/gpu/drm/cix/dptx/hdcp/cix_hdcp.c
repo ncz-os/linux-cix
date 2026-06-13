@@ -207,12 +207,16 @@ static ssize_t cix_hdcp_read(struct file *filp, char __user *buffer,
 	struct cix_hdcp *hdcp = filp->private_data;
 	ssize_t ret = 0;
 
-	if (!hdcp || !hdcp->aux)
+	if (!hdcp)
 		return -ENODEV;
 
 	ret = mutex_lock_interruptible(&hdcp->mutex);
 	if (ret)
 		return ret;
+	if (!hdcp->aux) {
+		mutex_unlock(&hdcp->mutex);
+		return -ENODEV;
+	}
 
 	for (;;) {
 		struct hdcp_event *e = NULL;
@@ -405,7 +409,9 @@ int cix_hdcp_init(struct cix_hdcp *hdcp)
 	struct drm_dp_aux *aux = hdcp->aux;
 	struct device *dev = aux->dev;
 
-	snprintf(hdcp->name, sizeof(hdcp->name), "hdcp-%s", dev_name(dev));
+	ret = snprintf(hdcp->name, sizeof(hdcp->name), "hdcp-%px", hdcp);
+	if (ret < 0 || ret >= sizeof(hdcp->name))
+		return -EINVAL;
 	mutex_init(&hdcp->mutex);
 	spin_lock_init(&hdcp->event_lock);
 	INIT_LIST_HEAD(&hdcp->event_list);
@@ -438,9 +444,11 @@ int cix_hdcp_uninit(struct cix_hdcp *hdcp)
 {
 	mutex_lock(&cix_hdcp_list_lock);
 	list_del(&hdcp->list);
-	hdcp->aux = NULL;
 	mutex_unlock(&cix_hdcp_list_lock);
 	misc_deregister(&hdcp->misc);
+	mutex_lock(&hdcp->mutex);
+	hdcp->aux = NULL;
+	mutex_unlock(&hdcp->mutex);
 	wake_up_interruptible_poll(&hdcp->event_wait, EPOLLERR | EPOLLHUP);
 
 	return 0;

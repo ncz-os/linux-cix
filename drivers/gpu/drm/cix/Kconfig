@@ -40,6 +40,7 @@ config DRM_LINLONDP_CLOCK_FIXED
 config DRM_TRILIN_DP_CIX
 	tristate "DRM Support for Trilinear DisplayPort on CiX platforms"
 	depends on DRM_CIX
+	select DRM_TRILIN_DPSUB
 	help
 	  Choose this if you want to use DP display on CiX Socs
 

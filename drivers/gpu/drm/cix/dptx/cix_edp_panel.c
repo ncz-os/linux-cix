@@ -680,7 +680,7 @@ static int cix_edp_panel_probe(struct device *dev, const struct panel_desc *desc
 	panel->power_invert =
 		device_property_read_bool(dev, "power-invert");
 
-	if (!of_get_display_timing(dev->of_node, "panel-timing", &dt))
+	if (dev->of_node && !of_get_display_timing(dev->of_node, "panel-timing", &dt))
 		cix_edp_panel_parse_panel_timing_node(dev, panel, &dt);
 
 	if (desc->bus_format == 0)
