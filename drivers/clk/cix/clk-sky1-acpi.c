@@ -148,10 +148,8 @@ static acpi_status sky1_clkt_walk_cb(acpi_handle handle, u32 level,
 		consumer_name = acpi_dev_name(adev);
 		ret = sky1_parse_clkt_entry(priv, consumer_name, e);
 parsed:
-		if (ret == -EPROBE_DEFER)
-			priv->err = -EPROBE_DEFER;
-		else if (ret && ret != -EINVAL && !priv->err)
-			priv->err = ret;
+		if (ret && ret != -EINVAL)
+			dev_dbg(priv->dev, "CLKT entry skipped for %s: %d\n", consumer_name, ret);
 	}
 
 out:
@@ -178,16 +176,8 @@ static int sky1_acpi_clk_probe(struct platform_device *pdev)
 		return dev_err_probe(&pdev->dev, -ENODEV,
 				     "ACPI namespace walk failed\n");
 
-	if (priv->err)
-		return dev_err_probe(&pdev->dev, priv->err,
-				     "ACPI CLKT parse deferred/failed\n");
-
-	if (priv->mapped == 0) {
-		if (priv->entries == 0)
-			return 0;
-		return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
-				     "No SCMI clocks mapped yet\n");
-	}
+	if (priv->mapped == 0)
+		return 0;
 
 	dev_info(&pdev->dev, "Mapped %d ACPI clock lookup entries\n",
 		 priv->mapped);

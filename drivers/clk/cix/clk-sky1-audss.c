@@ -815,10 +815,18 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 		goto err_clks;
 
 	/* Map RCSU for DSP initialization */
-	priv->rcsu_base = ioremap(SKY1_AUDSS_RCSU_ADDR, SKY1_AUDSS_RCSU_LEN);
-	if (!priv->rcsu_base) {
-		ret = -ENOMEM;
-		goto err_clks;
+	{
+		struct resource *res;
+
+		res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+		if (res)
+			priv->rcsu_base = devm_ioremap_resource(dev, res);
+		else
+			priv->rcsu_base = ioremap(SKY1_AUDSS_RCSU_ADDR, SKY1_AUDSS_RCSU_LEN);
+		if (IS_ERR_OR_NULL(priv->rcsu_base)) {
+			ret = priv->rcsu_base ? PTR_ERR(priv->rcsu_base) : -ENOMEM;
+			goto err_clks;
+		}
 	}
 
 	/* Configure RCSU address remap and timeout */
@@ -892,7 +900,8 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 	return 0;
 
 err_rcsu:
-	iounmap(priv->rcsu_base);
+	if (priv->rcsu_base)
+		iounmap(priv->rcsu_base);
 err_clks:
 	sky1_audss_clks_disable(priv);
 err_pm:
@@ -906,7 +915,8 @@ static void sky1_audss_clk_remove(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct sky1_audss_priv *priv = platform_get_drvdata(pdev);
 
-	iounmap(priv->rcsu_base);
+	if (priv->rcsu_base)
+		iounmap(priv->rcsu_base);
 
 	/* Force suspend if not already suspended */
 	if (!pm_runtime_status_suspended(dev))

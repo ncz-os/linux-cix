@@ -146,8 +146,10 @@ static uint32_t drm_acpi_crtc_port_mask(struct drm_device *dev,
 
 	drm_for_each_crtc(tmp, dev) {
 		if ((struct fwnode_handle *)tmp->port == port) {
+			if (index >= BITS_PER_TYPE(u32))
+				return 0;
 			pr_info("cix_virtual.drm_acpi_crtc_port_mask, port=%pfwP\n", port);
-			return 1 << index;
+			return BIT(index);
 		}
 
 		index++;
