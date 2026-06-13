@@ -520,7 +520,7 @@ static int scmi_clocks_probe(struct scmi_device *sdev)
 		}
 	}
 
-	return first_err ?: ((count == 0 || registered) ? 0 : -EPROBE_DEFER);
+	return (count == 0 || registered) ? 0 : (first_err ?: -EPROBE_DEFER);
 }
 
 static const struct scmi_device_id scmi_id_table[] = {

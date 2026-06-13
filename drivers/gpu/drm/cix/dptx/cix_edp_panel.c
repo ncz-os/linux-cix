@@ -279,7 +279,9 @@ static int cix_edp_panel_regulator_disable(struct cix_edp_panel *p)
 				return err;
 		}
 	} else {
-		regulator_disable(p->supply);
+		err = regulator_disable(p->supply);
+		if (err < 0)
+			return err;
 	}
 
 	return 0;
@@ -309,6 +311,7 @@ static int cix_edp_panel_disable(struct drm_panel *panel)
 static int cix_edp_panel_unprepare(struct drm_panel *panel)
 {
 	struct cix_edp_panel *p = to_cix_edp_panel(panel);
+	int err;
 
 	if (!p->prepared) {
 		dev_info(panel->dev, "%s, panel has been unprepared\n",
@@ -321,7 +324,9 @@ static int cix_edp_panel_unprepare(struct drm_panel *panel)
 	gpiod_set_value_cansleep(p->reset_gpio, 1);
 	gpiod_set_value_cansleep(p->enable_gpio, 0);
 
-	cix_edp_panel_regulator_disable(p);
+	err = cix_edp_panel_regulator_disable(p);
+	if (err < 0)
+		return err;
 
 	if (p->desc->delay.unprepare)
 		msleep(p->desc->delay.unprepare);

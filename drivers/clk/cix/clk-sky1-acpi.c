@@ -184,7 +184,7 @@ static int sky1_acpi_clk_probe(struct platform_device *pdev)
 
 	if (priv->mapped == 0) {
 		if (priv->entries == 0)
-			return -ENODEV;
+			return 0;
 		return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
 				     "No SCMI clocks mapped yet\n");
 	}

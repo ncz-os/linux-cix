@@ -165,7 +165,7 @@ static uint32_t drm_acpi_find_possible_crtcs(struct drm_device *dev,
 	fwnode_graph_for_each_endpoint(port, ep) {
 		remote_port = fwnode_graph_get_remote_port(ep);
 		if (!remote_port)
-			return 0;
+			continue;
 
 		possible_crtcs |= drm_acpi_crtc_port_mask(dev, remote_port);
 
