@@ -64,6 +64,8 @@ static int sky1_parse_clkt_entry(struct sky1_acpi_clk *priv,
 	if (con_id[0] == '\0')
 		con_id = NULL;
 
+	priv->entries++;
+
 	/* Look up the SCMI clock by its clkdev registration name */
 	ret = snprintf(scmi_id, sizeof(scmi_id), "scmi-clk-%llu", (unsigned long long)clock_id);
 	if (ret < 0 || ret >= sizeof(scmi_id))
@@ -72,7 +74,8 @@ static int sky1_parse_clkt_entry(struct sky1_acpi_clk *priv,
 	if (IS_ERR(clk)) {
 		dev_dbg(priv->dev, "SCMI clock %llu not available for %s\n",
 			clock_id, consumer_name);
-		return PTR_ERR(clk);
+		ret = PTR_ERR(clk);
+		return ret == -ENOENT ? -EPROBE_DEFER : ret;
 	}
 
 	/* Register consumer lookup */
@@ -120,7 +123,6 @@ static acpi_status sky1_clkt_walk_cb(acpi_handle handle, u32 level,
 	if (!adev)
 		goto out;
 
-	priv->entries += obj->package.count;
 	for (i = 0; i < obj->package.count; i++) {
 		union acpi_object *e = &obj->package.elements[i];
 		union acpi_object *ref;

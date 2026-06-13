@@ -504,8 +504,11 @@ static int scmi_clocks_probe(struct scmi_device *sdev)
 	for (idx = 0; idx < count; idx++) {
 		char con_id[20];
 
-		if (!hws[idx])
+		if (IS_ERR_OR_NULL(hws[idx])) {
+			if (IS_ERR(hws[idx]) && !first_err)
+				first_err = PTR_ERR(hws[idx]);
 			continue;
+		}
 
 		err = snprintf(con_id, sizeof(con_id), "scmi-clk-%d", idx);
 		if (err < 0 || err >= sizeof(con_id)) {
