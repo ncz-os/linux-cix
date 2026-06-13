@@ -129,6 +129,7 @@ int cix_hdcp_cp_irq_process(struct cix_hdcp *hdcp, u8 rx_status)
 }
 
 
+#ifdef CONFIG_TRILIN_DP_HDCP_VALIDATION
 static int cix_hdcp_open(struct inode *inode, struct file *filp)
 {
 	int ret;
@@ -407,6 +408,8 @@ static const struct file_operations hdcp_fops = {
 	.unlocked_ioctl = cix_hdcp_ioctl,
 };
 
+#endif
+
 int cix_hdcp_init(struct cix_hdcp *hdcp)
 {
 	int ret;
@@ -423,7 +426,7 @@ int cix_hdcp_init(struct cix_hdcp *hdcp)
 #ifndef CONFIG_TRILIN_DP_HDCP_VALIDATION
 	hdcp->misc_registered = false;
 	return 0;
-#endif
+#else
 
 	hdcp->misc.minor = MISC_DYNAMIC_MINOR;
 	hdcp->misc.mode = 0600;
@@ -444,10 +447,14 @@ int cix_hdcp_init(struct cix_hdcp *hdcp)
 	}
 
 	return 0;
+#endif
 }
 
 int cix_hdcp_uninit(struct cix_hdcp *hdcp)
 {
+#ifndef CONFIG_TRILIN_DP_HDCP_VALIDATION
+	return 0;
+#else
 	if (!hdcp)
 		return 0;
 
@@ -470,4 +477,5 @@ int cix_hdcp_uninit(struct cix_hdcp *hdcp)
 	wake_up_interruptible_poll(&hdcp->event_wait, EPOLLERR | EPOLLHUP);
 
 	return 0;
+#endif
 }
