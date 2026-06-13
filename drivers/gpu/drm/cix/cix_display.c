@@ -178,6 +178,12 @@ static int __init cix_acpi_display_probe(void)
        return 0;
 }
 
+
+static void cix_acpi_display_cleanup(void)
+{
+       memset(&cix_acpi_display, 0, sizeof(cix_acpi_display));
+}
+
 static void cix_display_remove(struct platform_device *pdev)
 {
        struct device *dev = &pdev->dev;
@@ -203,13 +209,18 @@ static int __init cix_display_init(void)
        if (ret)
                return ret;
 
-       return platform_driver_register(&cix_display_driver);
+       ret = platform_driver_register(&cix_display_driver);
+       if (ret)
+               cix_acpi_display_cleanup();
+
+       return ret;
 }
 module_init(cix_display_init);
 
 static void __exit cix_display_exit(void)
 {
        platform_driver_unregister(&cix_display_driver);
+       cix_acpi_display_cleanup();
 }
 module_exit(cix_display_exit);
 
