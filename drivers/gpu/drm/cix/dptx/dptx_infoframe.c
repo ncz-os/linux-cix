@@ -198,6 +198,8 @@ int cix_dptx_setup_avi_infoframe(struct dp_sdp *sdp,
 
 int cix_dptx_setup_vsc_sdp(struct dp_sdp *sdp, struct trilin_dp_config *config)
 {
+	memset(sdp, 0, sizeof(*sdp));
+
 	sdp->sdp_header.HB0 = 0;
 	sdp->sdp_header.HB1 = 0x7;
 	sdp->sdp_header.HB2 = 0x5;

@@ -830,10 +830,12 @@ static int cix_edp_panel_platform_probe(struct platform_device *pdev)
 		if (!d)
 			return -ENOMEM;
 
-		err = cix_edp_panel_of_get_desc_data(dev, d);
-		if (err) {
-			dev_err(dev, "failed to get desc data: %d\n", err);
-			return err;
+		if (dev->of_node) {
+			err = cix_edp_panel_of_get_desc_data(dev, d);
+			if (err) {
+				dev_err(dev, "failed to get desc data: %d\n", err);
+				return err;
+			}
 		}
 	}
 
