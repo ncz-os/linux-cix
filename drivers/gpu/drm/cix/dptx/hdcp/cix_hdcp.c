@@ -244,6 +244,10 @@ static ssize_t cix_hdcp_read(struct file *filp, char __user *buffer,
 				ret = mutex_lock_interruptible(&hdcp->mutex);
 			if (ret)
 				return ret;
+			if (!hdcp->aux) {
+				mutex_unlock(&hdcp->mutex);
+				return -ENODEV;
+			}
 		} else {
 			unsigned length = sizeof(unsigned int);
 
@@ -409,13 +413,18 @@ int cix_hdcp_init(struct cix_hdcp *hdcp)
 	struct drm_dp_aux *aux = hdcp->aux;
 	struct device *dev = aux->dev;
 
-	ret = snprintf(hdcp->name, sizeof(hdcp->name), "hdcp-%px", hdcp);
+	ret = snprintf(hdcp->name, sizeof(hdcp->name), "hdcp-%u", (unsigned int)(uintptr_t)hdcp & 0xffff);
 	if (ret < 0 || ret >= sizeof(hdcp->name))
 		return -EINVAL;
 	mutex_init(&hdcp->mutex);
 	spin_lock_init(&hdcp->event_lock);
 	INIT_LIST_HEAD(&hdcp->event_list);
 	init_waitqueue_head(&hdcp->event_wait);
+#ifndef CONFIG_TRILIN_DP_HDCP_VALIDATION
+	hdcp->misc_registered = false;
+	return 0;
+#endif
+
 	hdcp->misc.minor = MISC_DYNAMIC_MINOR;
 	hdcp->misc.mode = 0600;
 	hdcp->misc.name = hdcp->name;
@@ -425,6 +434,7 @@ int cix_hdcp_init(struct cix_hdcp *hdcp)
 	if (!ret) {
 		mutex_lock(&cix_hdcp_list_lock);
 		list_add(&hdcp->list, &cix_hdcp_list);
+		hdcp->misc_registered = true;
 		mutex_unlock(&cix_hdcp_list_lock);
 		dev_info(dev, "succeed register hdcp misc device.\n");
 	} else {
@@ -438,8 +448,20 @@ int cix_hdcp_init(struct cix_hdcp *hdcp)
 
 int cix_hdcp_uninit(struct cix_hdcp *hdcp)
 {
+	if (!hdcp)
+		return 0;
+
+	if (!hdcp->misc_registered) {
+		mutex_lock(&hdcp->mutex);
+		hdcp->aux = NULL;
+		mutex_unlock(&hdcp->mutex);
+		wake_up_interruptible_poll(&hdcp->event_wait, EPOLLERR | EPOLLHUP);
+		return 0;
+	}
+
 	mutex_lock(&cix_hdcp_list_lock);
 	list_del(&hdcp->list);
+	hdcp->misc_registered = false;
 	mutex_unlock(&cix_hdcp_list_lock);
 	misc_deregister(&hdcp->misc);
 	mutex_lock(&hdcp->mutex);

@@ -122,6 +122,7 @@ struct cix_hdcp {
 	void __iomem *tmr_addr;
 	bool opened;
 	bool timer_in_use;
+	bool misc_registered;
 	int hdcp_capable;
 	int hdcp_version;
 	int hdcp_repeater;
