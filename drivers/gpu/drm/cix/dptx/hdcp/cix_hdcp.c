@@ -85,51 +85,39 @@ int cix_hdcp_timer_process(struct cix_hdcp *hdcp)
 
 int cix_hdcp_cp_irq_process(struct cix_hdcp *hdcp, u8 rx_status)
 {
-	struct hdcp_event *e;
+	static const struct { u8 bit; unsigned int event; const char *name; } events[] = {
+		{ 0, EV2_TX_READY, "EV2_TX_READY" },
+		{ 1, EV2_TX_HPRIME_AVAILABLE, "EV2_TX_HPRIME_AVAILABLE" },
+		{ 2, EV2_TX_PAIRING_AVAILABLE, "EV2_TX_PAIRING_AVAILABLE" },
+		{ 3, EV2_TX_REAUTH_REQ, "EV2_TX_REAUTH_REQ" },
+		{ 4, EV2_TX_INTEGRITY_FAILURE, "EV2_TX_INTEGRITY_FAILURE" },
+	};
+	int i;
 
-	if (rx_status & 0x1f) {
+	for (i = 0; i < ARRAY_SIZE(events); i++) {
+		struct hdcp_event *e;
+
+		if (!((rx_status >> events[i].bit) & 0x1))
+			continue;
+
 		e = kmalloc(sizeof(*e), GFP_KERNEL);
 		if (!e)
 			return -ENOMEM;
-		if (rx_status & 0x1) {
-			e->event = EV2_TX_READY;
-			dev_info(hdcp->aux->dev, "report event EV2_TX_READY\n");
-		}
 
-		if ((rx_status >> 0x1) & 0x1) {
-			e->event = EV2_TX_HPRIME_AVAILABLE;
-			dev_info(hdcp->aux->dev,
-				 "report event EV2_TX_HPRIME_AVAILABLE\n");
-		}
-
-		if ((rx_status >> 0x2) & 0x1) {
-			e->event = EV2_TX_PAIRING_AVAILABLE;
-			dev_info(hdcp->aux->dev,
-				 "report event EV2_TX_PAIRING_AVAILABLE\n");
-		}
-
-		if ((rx_status >> 0x3) & 0x1) {
-			e->event = EV2_TX_REAUTH_REQ;
-			dev_info(hdcp->aux->dev,
-				 "report event EV2_TX_REAUTH_REQ\n");
-		}
-
-		if ((rx_status >> 0x4) & 0x1) {
-			e->event = EV2_TX_INTEGRITY_FAILURE;
-			dev_info(hdcp->aux->dev,
-				 "report event EV2_TX_INTEGRITY_FAILURE\n");
-		}
+		e->event = events[i].event;
+		dev_info(hdcp->aux->dev, "report event %s\n", events[i].name);
 
 		spin_lock_irq(&hdcp->event_lock);
 		list_add_tail(&e->list, &hdcp->event_list);
 		spin_unlock_irq(&hdcp->event_lock);
-
-		wake_up_interruptible_poll(&hdcp->event_wait,
-					   EPOLLIN | EPOLLRDNORM);
 	}
+
+	if (rx_status & 0x1f)
+		wake_up_interruptible_poll(&hdcp->event_wait, EPOLLIN | EPOLLRDNORM);
 
 	return 0;
 }
+
 
 static int cix_hdcp_open(struct inode *inode, struct file *filp)
 {
@@ -144,11 +132,13 @@ static int cix_hdcp_open(struct inode *inode, struct file *filp)
 		}
 	}
 
-	if (hdcp) {
+	if (hdcp && !hdcp->opened) {
 		hdcp->opened = true;
 		filp->private_data = hdcp;
 		dev_info(hdcp->aux->dev, "succeed to open hdcp file\n");
 		ret = 0;
+	} else if (hdcp) {
+		ret = -EBUSY;
 	} else {
 		ret = -ENODEV;
 	}
@@ -160,6 +150,9 @@ static int cix_hdcp_open(struct inode *inode, struct file *filp)
 static int cix_hdcp_close(struct inode *inode, struct file *filp)
 {
 	struct cix_hdcp *hdcp = filp->private_data;
+
+	if (!hdcp)
+		return 0;
 
 	for (;;) {
 		struct hdcp_event *e = NULL;
@@ -179,7 +172,10 @@ static int cix_hdcp_close(struct inode *inode, struct file *filp)
 		spin_unlock_irq(&hdcp->event_lock);
 	}
 
+	mutex_lock(&cix_hdcp_list_lock);
 	hdcp->opened = false;
+	filp->private_data = NULL;
+	mutex_unlock(&cix_hdcp_list_lock);
 
 	return 0;
 }
@@ -188,7 +184,10 @@ static ssize_t cix_hdcp_read(struct file *filp, char __user *buffer,
 			     size_t count, loff_t *offset)
 {
 	struct cix_hdcp *hdcp = filp->private_data;
-	ssize_t ret;
+	ssize_t ret = 0;
+
+	if (!hdcp || !hdcp->aux)
+		return -ENODEV;
 
 	ret = mutex_lock_interruptible(&hdcp->mutex);
 	if (ret)
@@ -256,6 +255,9 @@ static __poll_t cix_hdcp_poll(struct file *filp, poll_table *wait)
 	struct cix_hdcp *hdcp = filp->private_data;
 	__poll_t mask = 0;
 
+	if (!hdcp || !hdcp->aux)
+		return EPOLLERR | EPOLLHUP;
+
 	poll_wait(filp, &hdcp->event_wait, wait);
 	mutex_lock(&hdcp->mutex);
 
@@ -278,12 +280,20 @@ static long cix_hdcp_ioctl(struct file *file, unsigned int ucmd,
 	int ret = 0;
 	struct cix_hdcp *hdcp = file->private_data;
 
+	if (!hdcp || !hdcp->aux)
+		return -ENODEV;
+
+	if (_IOC_TYPE(ucmd) != CIX_HDCP_IOCTL_BASE)
+		return -ENOTTY;
+
 	if (nr >= ARRAY_SIZE(cix_hdcp_ioctl_cmds))
 		return -EINVAL;
 
 	nr = array_index_nospec(nr, ARRAY_SIZE(cix_hdcp_ioctl_cmds));
 	/* Get the kernel ioctl cmd that matches */
 	kcmd = cix_hdcp_ioctl_cmds[nr];
+	if (_IOC_TYPE(kcmd) != _IOC_TYPE(ucmd) || _IOC_NR(kcmd) != _IOC_NR(ucmd))
+		return -ENOTTY;
 
 	/* Figure out the delta between user cmd size and kernel cmd size */
 	drv_size = _IOC_SIZE(kcmd);
@@ -369,10 +379,7 @@ int cix_hdcp_init(struct cix_hdcp *hdcp)
 	struct drm_dp_aux *aux = hdcp->aux;
 	struct device *dev = aux->dev;
 
-	if (is_acpi_node(dev->fwnode))
-		snprintf(hdcp->name, 17, "hdcp-%s\n", dev_name(dev));
-	else
-		snprintf(hdcp->name, 14, "hdcp-%s\n", dev_name(dev));
+	snprintf(hdcp->name, sizeof(hdcp->name), "hdcp-%s", dev_name(dev));
 	mutex_init(&hdcp->mutex);
 	spin_lock_init(&hdcp->event_lock);
 	INIT_LIST_HEAD(&hdcp->event_list);
@@ -402,10 +409,11 @@ int cix_hdcp_init(struct cix_hdcp *hdcp)
 
 int cix_hdcp_uninit(struct cix_hdcp *hdcp)
 {
-	misc_deregister(&hdcp->misc);
 	mutex_lock(&cix_hdcp_list_lock);
 	list_del(&hdcp->list);
 	mutex_unlock(&cix_hdcp_list_lock);
+	misc_deregister(&hdcp->misc);
+	wake_up_interruptible_poll(&hdcp->event_wait, EPOLLERR | EPOLLHUP);
 	hdcp->aux = NULL;
 
 	return 0;

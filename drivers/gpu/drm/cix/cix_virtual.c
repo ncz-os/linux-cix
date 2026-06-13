@@ -146,8 +146,7 @@ static uint32_t drm_acpi_crtc_port_mask(struct drm_device *dev,
 
 	drm_for_each_crtc(tmp, dev) {
 		if ((struct fwnode_handle *)tmp->port == port) {
-			pr_info("cix_virtual.drm_acpi_crtc_port_mask, port=%s\n",
-				port->ops->get_name(port));
+			pr_info("cix_virtual.drm_acpi_crtc_port_mask, port=%pfwP\n", port);
 			return 1 << index;
 		}
 
@@ -213,8 +212,10 @@ cix_virtual_bind(struct device *comp, struct device *master,
 		encoder->possible_crtcs = drm_of_find_possible_crtcs(drm, (struct device_node *)np);
 	}
 	
-	if (encoder->possible_crtcs == 0)
+	if (encoder->possible_crtcs == 0) {
+		drm_encoder_cleanup(encoder);
 		return -EPROBE_DEFER;
+	}
 
 	/* Init virtual connector */
 	connector = &vd->connector;

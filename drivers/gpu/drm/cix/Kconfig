@@ -26,7 +26,7 @@ config DRM_LINLONDP
 config DRM_CIX_VIRTUAL
 	tristate "DRM Support for CiX Virtual Encoder"
 	depends on DRM_CIX
-	default y
+	default n
 	help
 	  This is a virtual encoder and connector support which is
 	  mainly used on EMU and FPGA. Disabled in default.
