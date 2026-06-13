@@ -501,6 +501,8 @@ static int scmi_clocks_probe(struct scmi_device *sdev)
 						   clk_data);
 
 	/* ACPI: register each clock via clkdev for global lookup */
+	int registered = 0;
+
 	for (idx = 0; idx < count; idx++) {
 		char con_id[20];
 
@@ -513,9 +515,11 @@ static int scmi_clocks_probe(struct scmi_device *sdev)
 			dev_warn(dev,
 				 "Failed to register clkdev for clock %d\n",
 				 idx);
+		else
+			registered++;
 	}
 
-	return 0;
+	return registered ? 0 : -EPROBE_DEFER;
 }
 
 static const struct scmi_device_id scmi_id_table[] = {

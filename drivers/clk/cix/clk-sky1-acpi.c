@@ -25,6 +25,7 @@
 
 struct sky1_acpi_clk {
 	struct device *dev;
+	int entries;
 	int mapped;
 	int err;
 };
@@ -117,6 +118,7 @@ static acpi_status sky1_clkt_walk_cb(acpi_handle handle, u32 level,
 	if (!adev)
 		goto out;
 
+	priv->entries += obj->package.count;
 	for (i = 0; i < obj->package.count; i++) {
 		union acpi_object *e = &obj->package.elements[i];
 		union acpi_object *ref;
@@ -177,9 +179,12 @@ static int sky1_acpi_clk_probe(struct platform_device *pdev)
 		return dev_err_probe(&pdev->dev, priv->err,
 				     "ACPI CLKT parse deferred/failed\n");
 
-	if (priv->mapped == 0)
+	if (priv->mapped == 0) {
+		if (priv->entries == 0)
+			return -ENODEV;
 		return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
 				     "No SCMI clocks mapped yet\n");
+	}
 
 	dev_info(&pdev->dev, "Mapped %d ACPI clock lookup entries\n",
 		 priv->mapped);

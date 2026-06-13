@@ -585,7 +585,9 @@ static int __maybe_unused sky1_audss_clk_runtime_resume(struct device *dev)
 	}
 
 	/* Release NOC reset */
-	reset_control_deassert(priv->rst_noc);
+	ret = reset_control_deassert(priv->rst_noc);
+	if (ret)
+		return ret;
 
 	/* Restore RCSU remap */
 	writel(SKY1_AUDSS_RCSU_REMAP_VAL, priv->rcsu_base + SKY1_AUDSS_RCSU_REMAP);
@@ -624,6 +626,8 @@ static int sky1_audss_parse_clka(struct device *dev,
 
 	status = acpi_evaluate_object_typed(handle, "CLKA", NULL, &output,
 					    ACPI_TYPE_PACKAGE);
+	if (status == AE_NOT_FOUND)
+		return 0;
 	if (ACPI_FAILURE(status))
 		return -ENODEV;
 
