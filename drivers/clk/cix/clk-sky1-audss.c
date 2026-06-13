@@ -773,8 +773,10 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 	if (has_acpi_companion(dev)) {
 		ret = acpi_device_set_power(ACPI_COMPANION(dev),
 					    ACPI_STATE_D0);
-		if (ret)
-			dev_warn(dev, "ACPI D0 transition failed: %d\n", ret);
+		if (ret) {
+			dev_err(dev, "ACPI D0 transition failed: %d\n", ret);
+			goto err_pm;
+		}
 	}
 
 	/* Enable parent clocks and set default rates */
@@ -888,7 +890,7 @@ err_rcsu:
 err_clks:
 	sky1_audss_clks_disable(priv);
 err_pm:
-	pm_runtime_put_sync(dev);
+	pm_runtime_put_noidle(dev);
 	pm_runtime_disable(dev);
 	return ret;
 }
@@ -904,6 +906,7 @@ static void sky1_audss_clk_remove(struct platform_device *pdev)
 	if (!pm_runtime_status_suspended(dev))
 		pm_runtime_force_suspend(dev);
 
+	pm_runtime_put_noidle(dev);
 	pm_runtime_disable(dev);
 }
 
