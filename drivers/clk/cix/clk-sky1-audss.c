@@ -59,6 +59,7 @@ static const u32 sky1_audss_clk_rates[SKY1_AUDSS_CLKS_NUM] = {
 struct sky1_audss_priv {
 	struct device *dev;
 	struct regmap *regmap;
+	void __iomem *reg_base;
 	void __iomem *rcsu_base;
 	bool rcsu_base_devm;
 	struct clk *parent_clks[SKY1_AUDSS_CLKS_NUM];
@@ -108,7 +109,7 @@ struct sky1_clk_divider {
 
 struct sky1_clk_gate {
 	struct clk_gate gate;
-	struct regmap *regmap;
+	void __iomem *reg_base;
 	struct device *dev;
 	int offset;
 };
@@ -358,17 +359,20 @@ static void sky1_audss_gate_endisable(struct clk_hw *hw, int enable)
 
 	set ^= enable;
 
+	if (!sky1_gate->reg_base)
+		return;
+
 	if (gate->lock)
 		spin_lock_irqsave(gate->lock, flags);
 
-	regmap_read(sky1_gate->regmap, sky1_gate->offset, &reg);
+	reg = readl(sky1_gate->reg_base + sky1_gate->offset);
 
 	if (set)
 		reg |= BIT(gate->bit_idx);
 	else
 		reg &= ~BIT(gate->bit_idx);
 
-	regmap_write(sky1_gate->regmap, sky1_gate->offset, reg);
+	writel(reg, sky1_gate->reg_base + sky1_gate->offset);
 
 	if (gate->lock)
 		spin_unlock_irqrestore(gate->lock, flags);
@@ -435,7 +439,10 @@ static int sky1_audss_gate_is_enabled(struct clk_hw *hw)
 	struct sky1_clk_gate *sky1_gate = container_of(gate, struct sky1_clk_gate, gate);
 	u32 val;
 
-	regmap_read(sky1_gate->regmap, sky1_gate->offset, &val);
+	if (!sky1_gate->reg_base)
+		return 0;
+
+	val = readl(sky1_gate->reg_base + sky1_gate->offset);
 
 	if (gate->flags & CLK_GATE_SET_TO_DISABLE)
 		val ^= BIT(gate->bit_idx);
@@ -514,7 +521,7 @@ static struct clk_hw *sky1_audss_clk_register(struct device *dev,
 		sky1_gate->gate.bit_idx = gate_cfg->shift;
 		sky1_gate->gate.flags = gate_cfg->flags;
 		sky1_gate->gate.lock = &sky1_audss_lock;
-		sky1_gate->regmap = regmap;
+		sky1_gate->reg_base = ((struct sky1_audss_priv *)dev_get_drvdata(dev))->reg_base;
 		sky1_gate->offset = gate_cfg->offset;
 		sky1_gate->dev = dev;
 		gate_ops = &sky1_audss_gate_ops;
@@ -756,6 +763,16 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 	if (IS_ERR(priv->regmap))
 		return dev_err_probe(dev, PTR_ERR(priv->regmap),
 				     "failed to get parent regmap\n");
+
+	{
+		struct resource *res;
+
+		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+		if (res)
+			priv->reg_base = devm_ioremap_resource(dev, res);
+		if (IS_ERR(priv->reg_base))
+			return PTR_ERR(priv->reg_base);
+	}
 
 	/* Get parent clocks from SCMI */
 	for (i = 0; i < SKY1_AUDSS_CLKS_NUM; i++) {
