@@ -744,8 +744,28 @@ static const struct of_device_id platform_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, platform_of_match);
 
+
+static const struct drm_display_mode cix_edp_default_mode = {
+	.clock = 148500,
+	.hdisplay = 1920,
+	.hsync_start = 1920 + 88,
+	.hsync_end = 1920 + 88 + 44,
+	.htotal = 1920 + 88 + 44 + 148,
+	.vdisplay = 1080,
+	.vsync_start = 1080 + 4,
+	.vsync_end = 1080 + 4 + 5,
+	.vtotal = 1080 + 4 + 5 + 36,
+	.flags = DRM_MODE_FLAG_PVSYNC | DRM_MODE_FLAG_PHSYNC,
+};
+
+static const struct panel_desc cix_edp_default_desc = {
+	.modes = &cix_edp_default_mode,
+	.num_modes = 1,
+	.bpc = 8,
+};
+
 static const struct acpi_device_id platform_acpi_match[] = {
-				{ .id = "CIXH5040", .driver_data = 0 },
+				{ .id = "CIXH5040", .driver_data = (kernel_ulong_t)&cix_edp_default_desc },
 				{ /* sentinel */ } };
 
 MODULE_DEVICE_TABLE(acpi, platform_acpi_match);

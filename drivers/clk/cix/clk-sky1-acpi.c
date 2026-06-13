@@ -99,7 +99,7 @@ static acpi_status sky1_clkt_walk_cb(acpi_handle handle, u32 level,
 				     void *context, void **ret_val)
 {
 	struct sky1_acpi_clk *priv = context;
-	struct acpi_device *adev;
+	struct acpi_device *adev = NULL;
 	struct acpi_buffer buf = { ACPI_ALLOCATE_BUFFER, NULL };
 	union acpi_object *obj;
 	const char *consumer_name;
