@@ -586,9 +586,6 @@ static int __maybe_unused sky1_audss_clk_runtime_suspend(struct device *dev)
 	struct sky1_audss_priv *priv = dev_get_drvdata(dev);
 	int i, ret;
 
-	if (!pm_runtime_active(dev))
-		return 0;
-
 	/* Save register state before power down */
 	for (i = 0; i < ARRAY_SIZE(sky1_audss_reg_save); i++) {
 		priv->reg_save[i][0] = sky1_audss_reg_save[i][0];

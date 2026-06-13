@@ -104,7 +104,7 @@ static acpi_status sky1_clkt_walk_cb(acpi_handle handle, u32 level,
 	struct acpi_device *adev = NULL;
 	struct acpi_buffer buf = { ACPI_ALLOCATE_BUFFER, NULL };
 	union acpi_object *obj;
-	const char *consumer_name;
+	const char *consumer_name = NULL;
 	acpi_status status;
 	int i, ret;
 
@@ -124,6 +124,8 @@ static acpi_status sky1_clkt_walk_cb(acpi_handle handle, u32 level,
 	for (i = 0; i < obj->package.count; i++) {
 		union acpi_object *e = &obj->package.elements[i];
 		union acpi_object *ref;
+
+		consumer_name = acpi_dev_name(adev);
 
 		/*
 		 * Element 2 (if present) is the actual consumer device
@@ -147,7 +149,6 @@ static acpi_status sky1_clkt_walk_cb(acpi_handle handle, u32 level,
 				}
 			}
 		}
-		consumer_name = acpi_dev_name(adev);
 		ret = sky1_parse_clkt_entry(priv, consumer_name, e);
 parsed:
 		if (ret && ret != -EINVAL) {
@@ -192,6 +193,9 @@ static int sky1_acpi_clk_probe(struct platform_device *pdev)
 		return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
 				     "No SCMI clocks mapped yet\n");
 	}
+	if (priv->mapped < priv->entries)
+		return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
+				     "Some ACPI CLKT entries were not mapped yet\n");
 
 	dev_info(&pdev->dev, "Mapped %d ACPI clock lookup entries\n",
 		 priv->mapped);
