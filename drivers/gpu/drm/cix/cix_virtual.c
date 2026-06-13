@@ -226,13 +226,13 @@ cix_virtual_bind(struct device *comp, struct device *master,
 				 DRM_MODE_CONNECTOR_VIRTUAL);
 	if (ret) {
 		dev_err(vd->dev, "failed to init connector: %d\n", ret);
-		return ret;
+		goto err_encoder;
 	}
 
 	ret = drm_connector_attach_encoder(connector, encoder);
 	if (ret) {
 		dev_err(vd->dev, "Failed to attach connector to encoder\n");
-		return ret;
+		goto err_connector;
 	}
 
 	/*  Set supported color formats */
@@ -241,6 +241,12 @@ cix_virtual_bind(struct device *comp, struct device *master,
 						BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR420);
 
 	return 0;
+
+err_connector:
+	drm_connector_cleanup(connector);
+err_encoder:
+	drm_encoder_cleanup(encoder);
+	return ret;
 }
 
 static void

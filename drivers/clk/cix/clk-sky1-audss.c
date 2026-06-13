@@ -70,6 +70,7 @@ struct sky1_audss_priv {
 	u32 reg_save[SKY1_AUDSS_REG_SAVE_NUM][2];
 	bool acpi_powered;
 	bool reset_deasserted;
+	bool pm_ref_held;
 };
 
 /* Clock configuration structures */
@@ -821,6 +822,7 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 	 * enabling clocks.
 	 */
 	pm_runtime_get_noresume(dev);
+	priv->pm_ref_held = true;
 	pm_runtime_set_active(dev);
 	pm_runtime_enable(dev);
 
@@ -988,7 +990,10 @@ err_pm:
 	if (priv->acpi_powered &&
 	    !acpi_device_set_power(ACPI_COMPANION(dev), ACPI_STATE_D3_COLD))
 		priv->acpi_powered = false;
-	pm_runtime_put_noidle(dev);
+	if (priv->pm_ref_held) {
+		pm_runtime_put_noidle(dev);
+		priv->pm_ref_held = false;
+	}
 	pm_runtime_disable(dev);
 	return ret;
 }
@@ -1006,20 +1011,21 @@ static void sky1_audss_clk_remove(struct platform_device *pdev)
 		priv->reset_deasserted = false;
 	}
 
-	/* Force suspend if not already suspended */
+	/* Preserve runtime PM teardown ordering, then release the probe-held ref. */
 	if (!pm_runtime_status_suspended(dev)) {
 		int ret = pm_runtime_force_suspend(dev);
 
-		if (ret) {
+		if (ret)
 			dev_err(dev, "runtime force suspend failed: %d\n", ret);
-			return;
-		}
+	}
+	if (priv->pm_ref_held) {
+		pm_runtime_put_noidle(dev);
+		priv->pm_ref_held = false;
 	}
 
 	if (priv->acpi_powered &&
 	    !acpi_device_set_power(ACPI_COMPANION(dev), ACPI_STATE_D3_COLD))
 		priv->acpi_powered = false;
-	pm_runtime_put_noidle(dev);
 	pm_runtime_disable(dev);
 }
 

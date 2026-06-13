@@ -74,12 +74,11 @@ static int sky1_parse_clkt_entry(struct sky1_acpi_clk *priv,
 	if (con_id[0] == '\0')
 		con_id = NULL;
 
-	priv->entries++;
-
 	/* Look up the SCMI clock by its clkdev registration name */
 	ret = snprintf(scmi_id, sizeof(scmi_id), "scmi-clk-%llu", (unsigned long long)clock_id);
 	if (ret < 0 || ret >= sizeof(scmi_id))
 		return -EINVAL;
+
 	clk = clk_get(NULL, scmi_id);
 	if (IS_ERR(clk)) {
 		dev_dbg(priv->dev, "SCMI clock %llu not available for %s\n",
@@ -87,6 +86,8 @@ static int sky1_parse_clkt_entry(struct sky1_acpi_clk *priv,
 		ret = PTR_ERR(clk);
 		return ret == -ENOENT ? -EPROBE_DEFER : ret;
 	}
+
+	priv->entries++;
 
 	/* Register consumer lookup. clkdev keeps this clk pointer but does not
 	 * own a reference, so retain ours until the devm cleanup drops the
@@ -186,7 +187,7 @@ parsed:
 out:
 	if (adev)
 		acpi_dev_put(adev);
-	kfree(buf.pointer);
+	ACPI_FREE(buf.pointer);
 	return AE_OK;
 }
 

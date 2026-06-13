@@ -272,6 +272,9 @@ static int cix_edp_panel_regulator_disable(struct cix_edp_panel *p)
 {
 	int err;
 
+	if (!p->supply)
+		return 0;
+
 	if (p->power_invert) {
 		if (!regulator_is_enabled(p->supply)) {
 			err = regulator_enable(p->supply);

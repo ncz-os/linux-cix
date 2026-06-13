@@ -399,7 +399,8 @@ scmi_clk_ops_select(struct scmi_clk *sclk, bool atomic_capable,
 
 static int scmi_clocks_probe(struct scmi_device *sdev)
 {
-	int idx, count, err, registered = 0, first_err = 0;
+	int idx, count, err, registered = 0, valid_count = 0;
+	int info_err = 0, reg_err = 0;
 	unsigned int atomic_threshold_us;
 	bool transport_is_atomic;
 	struct clk_hw **hws;
@@ -450,12 +451,13 @@ static int scmi_clocks_probe(struct scmi_device *sdev)
 		sclk->info = scmi_proto_clk_ops->info_get(ph, idx);
 		if (!sclk->info) {
 			dev_dbg(dev, "invalid clock info for idx %d\n", idx);
-			if (!first_err)
-				first_err = -ENOENT;
+			if (!info_err)
+				info_err = -ENOENT;
 			hws[idx] = ERR_PTR(-ENOENT);
 			continue;
 		}
 
+		valid_count++;
 		sclk->id = idx;
 		sclk->ph = ph;
 		sclk->dev = dev;
@@ -489,6 +491,8 @@ static int scmi_clocks_probe(struct scmi_device *sdev)
 		err = scmi_clk_ops_init(dev, sclk, scmi_ops);
 		if (err) {
 			dev_err(dev, "failed to register clock %d\n", idx);
+			if (!reg_err)
+				reg_err = err;
 			devm_kfree(dev, sclk->parent_data);
 			hws[idx] = ERR_PTR(err);
 		} else {
@@ -507,15 +511,15 @@ static int scmi_clocks_probe(struct scmi_device *sdev)
 		char con_id[20];
 
 		if (IS_ERR_OR_NULL(hws[idx])) {
-			if (IS_ERR(hws[idx]) && !first_err)
-				first_err = PTR_ERR(hws[idx]);
+			if (IS_ERR(hws[idx]) && PTR_ERR(hws[idx]) != -ENOENT && !reg_err)
+				reg_err = PTR_ERR(hws[idx]);
 			continue;
 		}
 
 		err = snprintf(con_id, sizeof(con_id), "scmi-clk-%d", idx);
 		if (err < 0 || err >= sizeof(con_id)) {
-			if (!first_err)
-				first_err = err < 0 ? err : -EINVAL;
+			if (!reg_err)
+				reg_err = err < 0 ? err : -EINVAL;
 			continue;
 		}
 		err = devm_clk_hw_register_clkdev(dev, hws[idx], con_id, NULL);
@@ -523,17 +527,17 @@ static int scmi_clocks_probe(struct scmi_device *sdev)
 			dev_warn(dev,
 				 "Failed to register clkdev for clock %d: %d\n",
 				 idx, err);
-			if (!first_err)
-				first_err = err;
+			if (!reg_err)
+				reg_err = err;
 		} else {
 			registered++;
 		}
 	}
 
-	if (count == 0)
-		return 0;
-	if (registered != count)
-		return first_err ?: -EPROBE_DEFER;
+	if (valid_count == 0)
+		return count == 0 ? 0 : (info_err ?: reg_err ?: -ENODEV);
+	if (registered != valid_count)
+		return reg_err ?: info_err ?: -EPROBE_DEFER;
 
 	return 0;
 }
