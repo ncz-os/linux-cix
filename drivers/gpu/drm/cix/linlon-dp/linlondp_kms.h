@@ -337,3 +337,15 @@ struct linlondp_kms_dev *linlondp_kms_attach(struct linlondp_dev *mdev);
 void linlondp_kms_detach(struct linlondp_kms_dev *kms);
 
 #endif /*_LINLONDP_KMS_H_*/
+/*
+ * v7.1 replaced DRM_COLOR_FORMAT_* bitmasks with
+ * DRM_OUTPUT_COLOR_FORMAT_* enum values. Keep legacy CIX codepaths using
+ * bitmasks during the forward-port.
+ */
+#ifndef DRM_COLOR_FORMAT_RGB444
+#define DRM_COLOR_FORMAT_RGB444	BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444)
+#define DRM_COLOR_FORMAT_YCBCR444	BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR444)
+#define DRM_COLOR_FORMAT_YCBCR422	BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR422)
+#define DRM_COLOR_FORMAT_YCBCR420	BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR420)
+#endif
+
