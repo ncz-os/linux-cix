@@ -26,15 +26,13 @@
 #include <linux/platform_device.h>
 #include <linux/reset-controller.h>
 
-static struct device *acpi_obj_to_platform_device(const union acpi_object *obj)
+static struct acpi_device *acpi_obj_to_acpi_dev(const union acpi_object *obj)
 {
-	struct acpi_device *adev;
-
 	if (!obj)
 		return NULL;
 
 	if (obj->type == ACPI_TYPE_LOCAL_REFERENCE) {
-		adev = acpi_fetch_acpi_dev(obj->reference.handle);
+		return acpi_fetch_acpi_dev(obj->reference.handle);
 	} else if (obj->type == ACPI_TYPE_STRING) {
 		acpi_handle handle;
 		acpi_status status;
@@ -42,10 +40,15 @@ static struct device *acpi_obj_to_platform_device(const union acpi_object *obj)
 		status = acpi_get_handle(NULL, obj->string.pointer, &handle);
 		if (ACPI_FAILURE(status))
 			return NULL;
-		adev = acpi_fetch_acpi_dev(handle);
-	} else {
-		return NULL;
+		return acpi_fetch_acpi_dev(handle);
 	}
+
+	return NULL;
+}
+
+static struct device *acpi_obj_to_platform_device(const union acpi_object *obj)
+{
+	struct acpi_device *adev = acpi_obj_to_acpi_dev(obj);
 
 	if (!adev)
 		return NULL;
@@ -55,13 +58,25 @@ static struct device *acpi_obj_to_platform_device(const union acpi_object *obj)
 
 static const char *acpi_obj_to_devname(const union acpi_object *obj)
 {
+	struct acpi_device *adev;
 	struct device *dev;
 
 	dev = acpi_obj_to_platform_device(obj);
-	if (!dev)
-		return NULL;
+	if (dev)
+		return dev_name(dev);
 
-	return dev_name(dev);
+	/*
+	 * The target platform_device may not be instantiated yet when this
+	 * lookup runs (subsys_initcall ordering vs ACPI platform-device
+	 * creation).  For ACPI-enumerated platform devices, dev_name() equals
+	 * the ACPI device's bus id, so fall back to that deterministic name.
+	 * Without this, reset_control lookups for not-yet-probed consumers
+	 * (e.g. usb_reset/usb_preset on CIXH2030/CIXH2032) get a NULL dev_id
+	 * and are rejected by reset_controller_add_lookup() as "badly
+	 * specified", leaving USB PHY/controller resets unresolved.
+	 */
+	adev = acpi_obj_to_acpi_dev(obj);
+	return adev ? acpi_dev_name(adev) : NULL;
 }
 
 /*
