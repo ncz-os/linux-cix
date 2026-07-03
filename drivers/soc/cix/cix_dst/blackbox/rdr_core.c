@@ -479,10 +479,9 @@ err:
 	return -1;
 }
 
-static int rdr_remove(struct platform_device *pdev)
+static void rdr_remove(struct platform_device *pdev)
 {
 	rdr_dump_exit();
-	return 0;
 }
 
 static struct platform_driver rdr_driver = {

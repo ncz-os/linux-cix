@@ -277,7 +277,7 @@ static int linlondp_dpu_slave_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int linlondp_dpu_slave_remove(struct platform_device *pdev)
+static void linlondp_dpu_slave_remove(struct platform_device *pdev)
 {
 	struct linlondp_dev *mdev = platform_get_drvdata(pdev);
 
@@ -286,7 +286,6 @@ static int linlondp_dpu_slave_remove(struct platform_device *pdev)
 	if (mdev)
 		linlondp_dev_destroy(mdev);
 	platform_set_drvdata(pdev, NULL);
-	return 0;
 }
 
 static int linlondp_platform_probe(struct platform_device *pdev)
@@ -337,13 +336,11 @@ static int linlondp_platform_probe(struct platform_device *pdev)
 					       match);
 }
 
-static int linlondp_platform_remove(struct platform_device *pdev)
-{
-	if (device_property_read_bool(&pdev->dev, "cix,linlon-dpu-slave") ||
+static intstatic void linlondp_platform_remove(struct platform_device *pdev)
+{ce_property_read_bool(&pdev->dev, "cix,linlon-dpu-slave") ||
 	    linlondp_acpi_is_cluster_dpu_slave(&pdev->dev))
 		return linlondp_dpu_slave_remove(pdev);
 	component_master_del(&pdev->dev, &linlondp_master_ops);
-	return 0;
 }
 
 static const struct of_device_id linlondp_of_match[] = {
