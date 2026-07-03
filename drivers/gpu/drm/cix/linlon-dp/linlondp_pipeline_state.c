@@ -22,7 +22,7 @@ static inline bool is_switching_user(void *old, void *new)
 
 static struct linlondp_pipeline_state *
 linlondp_pipeline_get_state(struct linlondp_pipeline *pipe,
-			    struct drm_atomic_state *state)
+			    struct drm_atomic_commit *state)
 {
 	struct drm_private_state *priv_st;
 
@@ -35,7 +35,7 @@ linlondp_pipeline_get_state(struct linlondp_pipeline *pipe,
 
 struct linlondp_pipeline_state *
 linlondp_pipeline_get_old_state(struct linlondp_pipeline *pipe,
-				struct drm_atomic_state *state)
+				struct drm_atomic_commit *state)
 {
 	struct drm_private_state *priv_st;
 
@@ -47,7 +47,7 @@ linlondp_pipeline_get_old_state(struct linlondp_pipeline *pipe,
 
 static struct linlondp_pipeline_state *
 linlondp_pipeline_get_new_state(struct linlondp_pipeline *pipe,
-				struct drm_atomic_state *state)
+				struct drm_atomic_commit *state)
 {
 	struct drm_private_state *priv_st;
 
@@ -60,7 +60,7 @@ linlondp_pipeline_get_new_state(struct linlondp_pipeline *pipe,
 /* Assign pipeline for crtc */
 static struct linlondp_pipeline_state *
 linlondp_pipeline_get_state_and_set_crtc(struct linlondp_pipeline *pipe,
-					 struct drm_atomic_state *state,
+					 struct drm_atomic_commit *state,
 					 struct drm_crtc *crtc)
 {
 	struct linlondp_pipeline_state *st;
@@ -97,7 +97,7 @@ linlondp_pipeline_get_state_and_set_crtc(struct linlondp_pipeline *pipe,
 
 static struct linlondp_component_state *
 linlondp_component_get_state(struct linlondp_component *c,
-			     struct drm_atomic_state *state)
+			     struct drm_atomic_commit *state)
 {
 	struct drm_private_state *priv_st;
 
@@ -112,7 +112,7 @@ linlondp_component_get_state(struct linlondp_component *c,
 
 static struct linlondp_component_state *
 linlondp_component_get_old_state(struct linlondp_component *c,
-				 struct drm_atomic_state *state)
+				 struct drm_atomic_commit *state)
 {
 	struct drm_private_state *priv_st;
 
@@ -149,7 +149,7 @@ linlondp_component_get_old_state(struct linlondp_component *c,
  */
 static struct linlondp_component_state *
 linlondp_component_get_state_and_set_user(struct linlondp_component *c,
-					  struct drm_atomic_state *state,
+					  struct drm_atomic_commit *state,
 					  void *user, struct drm_crtc *crtc)
 {
 	struct linlondp_pipeline_state *pipe_st;
@@ -250,7 +250,7 @@ linlondp_component_validate_private(struct linlondp_component *c,
 /* Get current available scaler from the component->supported_outputs */
 static struct linlondp_scaler *
 linlondp_component_get_avail_scaler(struct linlondp_component *c,
-				    struct drm_atomic_state *state)
+				    struct drm_atomic_commit *state)
 {
 	struct linlondp_pipeline_state *pipe_st;
 	u32 avail_scalers;
@@ -282,7 +282,7 @@ static void linlondp_rotate_data_flow(struct linlondp_data_flow_cfg *dflow,
 static int linlondp_validate_plane_color(
 	struct linlondp_component *c, struct linlondp_color_manager *color_mgr,
 	struct linlondp_color_state *color_st, struct drm_plane_state *plane_st,
-	struct drm_atomic_state *drm_st)
+	struct drm_atomic_commit *drm_st)
 {
 	struct linlondp_plane_state *kplane_st = to_kplane_st(plane_st);
 	struct linlondp_component_state *old_st;
@@ -365,7 +365,7 @@ static int linlondp_layer_check_cfg(struct linlondp_layer *layer,
 
 static int linlondp_layer_validate(struct linlondp_layer *layer,
 				   struct linlondp_plane_state *kplane_st,
-				   struct drm_atomic_state *drm_st,
+				   struct drm_atomic_commit *drm_st,
 				   struct linlondp_data_flow_cfg *dflow)
 {
 	struct drm_plane_state *plane_st = &kplane_st->base;
@@ -540,7 +540,7 @@ static int linlondp_scaler_check_cfg(struct linlondp_scaler *scaler,
 
 static int linlondp_scaler_validate(void *user,
 				    struct linlondp_crtc_state *kcrtc_st,
-				    struct drm_atomic_state *drm_st,
+				    struct drm_atomic_commit *drm_st,
 				    struct linlondp_data_flow_cfg *dflow)
 {
 	struct linlondp_component_state *c_st;
@@ -652,7 +652,7 @@ static int linlondp_splitter_validate(struct linlondp_splitter *splitter,
 
 static int linlondp_merger_validate(struct linlondp_merger *merger, void *user,
 				    struct linlondp_crtc_state *kcrtc_st,
-				    struct drm_atomic_state *drm_st,
+				    struct drm_atomic_commit *drm_st,
 				    struct linlondp_data_flow_cfg *left_input,
 				    struct linlondp_data_flow_cfg *right_input,
 				    struct linlondp_data_flow_cfg *output)
@@ -716,7 +716,7 @@ void pipeline_composition_size(struct linlondp_crtc_state *kcrtc_st,
 
 static int linlondp_compiz_set_input(struct linlondp_compiz *compiz,
 				     struct linlondp_crtc_state *kcrtc_st,
-				     struct drm_atomic_state *drm_st,
+				     struct drm_atomic_commit *drm_st,
 				     struct linlondp_data_flow_cfg *dflow)
 {
 	struct drm_crtc *crtc = kcrtc_st->base.crtc;
@@ -782,7 +782,7 @@ static int linlondp_compiz_set_input(struct linlondp_compiz *compiz,
 
 static int linlondp_compiz_validate(struct linlondp_compiz *compiz,
 				    struct linlondp_crtc_state *state,
-				    struct drm_atomic_state *drm_st,
+				    struct drm_atomic_commit *drm_st,
 				    struct linlondp_data_flow_cfg *dflow)
 {
 	struct drm_crtc *crtc = state->base.crtc;
@@ -826,7 +826,7 @@ static int linlondp_compiz_validate(struct linlondp_compiz *compiz,
 
 static int linlondp_improc_validate(struct linlondp_improc *improc,
 				    struct linlondp_crtc_state *kcrtc_st,
-				    struct drm_atomic_state *drm_st,
+				    struct drm_atomic_commit *drm_st,
 				    struct linlondp_data_flow_cfg *m_dflow,
 				    struct linlondp_data_flow_cfg *s_dflow)
 {
@@ -904,7 +904,7 @@ static int linlondp_improc_validate(struct linlondp_improc *improc,
 
 static int linlondp_timing_ctrlr_validate(struct linlondp_timing_ctrlr *ctrlr,
 					  struct linlondp_crtc_state *kcrtc_st,
-					  struct drm_atomic_state *drm_st,
+					  struct drm_atomic_commit *drm_st,
 					  struct linlondp_data_flow_cfg *dflow,
 					  bool image_merged)
 {
@@ -976,7 +976,7 @@ static bool merger_is_available(struct linlondp_pipeline *pipe,
 int linlondp_build_layer_data_flow(struct linlondp_layer *layer,
 				   struct linlondp_plane_state *kplane_st,
 				   struct linlondp_crtc_state *kcrtc_st,
-				   struct drm_atomic_state *drm_st,
+				   struct drm_atomic_commit *drm_st,
 				   struct linlondp_data_flow_cfg *dflow)
 {
 	struct drm_plane *plane = kplane_st->base.plane;
@@ -1189,7 +1189,7 @@ static void linlondp_split_data_flow(struct linlondp_scaler *scaler,
 int linlondp_build_layer_split_data_flow(struct linlondp_layer *left,
 					 struct linlondp_plane_state *kplane_st,
 					 struct linlondp_crtc_state *kcrtc_st,
-					 struct drm_atomic_state *drm_st,
+					 struct drm_atomic_commit *drm_st,
 					 struct linlondp_data_flow_cfg *dflow)
 {
 	struct drm_plane *plane = kplane_st->base.plane;
@@ -1417,7 +1417,7 @@ linlondp_split_sbs_slave_data_flow(struct linlondp_crtc_state *kcrtc_st,
 int linlondp_build_layer_sbs_data_flow(struct linlondp_layer *layer,
 				       struct linlondp_plane_state *kplane_st,
 				       struct linlondp_crtc_state *kcrtc_st,
-				       struct drm_atomic_state *drm_st,
+				       struct drm_atomic_commit *drm_st,
 				       struct linlondp_data_flow_cfg *dflow)
 {
 	struct linlondp_crtc *kcrtc = to_kcrtc(kcrtc_st->base.crtc);
@@ -1487,7 +1487,7 @@ int linlondp_build_layer_sbs_data_flow(struct linlondp_layer *layer,
 int linlondp_build_wb_data_flow(struct linlondp_layer *wb_layer,
 				struct drm_connector_state *conn_st,
 				struct linlondp_crtc_state *kcrtc_st,
-				struct drm_atomic_state *drm_st,
+				struct drm_atomic_commit *drm_st,
 				struct linlondp_data_flow_cfg *dflow)
 {
 	struct drm_connector *conn = conn_st->connector;
@@ -1508,7 +1508,7 @@ int linlondp_build_wb_data_flow(struct linlondp_layer *wb_layer,
 int linlondp_build_wb_split_data_flow(struct linlondp_layer *wb_layer,
 				      struct drm_connector_state *conn_st,
 				      struct linlondp_crtc_state *kcrtc_st,
-				      struct drm_atomic_state *drm_st,
+				      struct drm_atomic_commit *drm_st,
 				      struct linlondp_data_flow_cfg *dflow)
 {
 	struct linlondp_pipeline *pipe = wb_layer->base.pipeline;
@@ -1583,7 +1583,7 @@ int linlondp_build_wb_sbs_data_flow(struct linlondp_crtc *kcrtc,
  */
 int linlondp_build_display_data_flow(struct linlondp_crtc *kcrtc,
 				     struct linlondp_crtc_state *kcrtc_st,
-				     struct drm_atomic_state *drm_st)
+				     struct drm_atomic_commit *drm_st)
 {
 	struct linlondp_pipeline *master = kcrtc->master;
 	struct linlondp_pipeline *slave = kcrtc->slave;
@@ -1647,7 +1647,7 @@ static void
 linlondp_pipeline_unbound_components(struct linlondp_pipeline *pipe,
 				     struct linlondp_pipeline_state *new)
 {
-	struct drm_atomic_state *drm_st = new->obj.state;
+	struct drm_atomic_commit *drm_st = new->obj.state;
 	struct linlondp_pipeline_state *old = priv_to_pipe_st(pipe->obj.state);
 	struct linlondp_component_state *c_st;
 	struct linlondp_component *c;
@@ -1670,7 +1670,7 @@ linlondp_pipeline_unbound_components(struct linlondp_pipeline *pipe,
 /* release unclaimed pipeline resource */
 int linlondp_release_unclaimed_resources(struct linlondp_pipeline *pipe,
 					 struct linlondp_crtc_state *kcrtc_st,
-					 struct drm_atomic_state *drm_st)
+					 struct drm_atomic_commit *drm_st)
 {
 	struct linlondp_pipeline_state *st;
 
@@ -1706,7 +1706,7 @@ int linlondp_release_unclaimed_resources(struct linlondp_pipeline *pipe,
  * false: disable is complete.
  */
 bool linlondp_pipeline_disable(struct linlondp_pipeline *pipe,
-			       struct drm_atomic_state *old_state)
+			       struct drm_atomic_commit *old_state)
 {
 	struct linlondp_pipeline_state *old;
 	struct linlondp_component *c;
@@ -1752,7 +1752,7 @@ bool linlondp_pipeline_disable(struct linlondp_pipeline *pipe,
 }
 
 void linlondp_pipeline_update(struct linlondp_pipeline *pipe,
-			      struct drm_atomic_state *old_state)
+			      struct drm_atomic_commit *old_state)
 {
 	struct linlondp_pipeline_state *new = priv_to_pipe_st(pipe->obj.state);
 	struct linlondp_pipeline_state *old;

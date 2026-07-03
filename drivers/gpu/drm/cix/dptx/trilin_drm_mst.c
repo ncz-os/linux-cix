@@ -401,7 +401,7 @@ static int trilin_dp_mst_get_modes(struct drm_connector *connector)
 }
 
 enum drm_mode_status trilin_dp_mst_mode_valid(struct drm_connector *connector,
-					      struct drm_display_mode *mode)
+					      const struct drm_display_mode *mode)
 {
 	const int min_bpp = 6 * 3;
 	struct trilin_connector *conn = connector_to_trilin(connector);
@@ -426,7 +426,7 @@ enum drm_mode_status trilin_dp_mst_mode_valid(struct drm_connector *connector,
 
 static struct drm_encoder *
 trilin_mst_atomic_best_encoder(struct drm_connector *connector,
-			       struct drm_atomic_state *state)
+			       struct drm_atomic_commit *state)
 {
 	struct drm_connector_state *connector_state =
 		drm_atomic_get_new_connector_state(state, connector);
@@ -464,7 +464,7 @@ trilin_mst_atomic_best_encoder(struct drm_connector *connector,
 }
 
 static int trilin_dp_mst_conn_atomic_check(struct drm_connector *connector,
-					   struct drm_atomic_state *state)
+					   struct drm_atomic_commit *state)
 {
 	struct trilin_connector *conn = connector_to_trilin(connector);
 	struct trilin_dp *dp = conn->dp;
@@ -615,7 +615,7 @@ _dp_mst_encoders_pre_enable_part2(struct trilin_encoder *mst_encoder)
 	struct drm_dp_mst_topology_mgr *mgr = dp->mst_mgr;
 	struct trilin_connector *conn = mst_encoder->connector;
 	struct drm_dp_mst_port *port = conn->port;
-	struct drm_atomic_state *state = conn->state;
+	struct drm_atomic_commit *state = conn->state;
 
 	DP_MST_DEBUG("enter %p\n", state);
 
@@ -623,7 +623,7 @@ _dp_mst_encoders_pre_enable_part2(struct trilin_encoder *mst_encoder)
 
 	mst_state = to_drm_dp_mst_topology_state(mgr->base.state);
 	payload = drm_atomic_get_mst_payload_state(mst_state, port);
-	drm_dp_add_payload_part2(mgr, state, payload);
+	drm_dp_add_payload_part2(mgr, payload);
 	DP_MST_DEBUG(
 		"mst encoder [%d] _pre enable part-2 complete [state=%p]\n",
 		mst_encoder->id, state);
@@ -635,7 +635,7 @@ static void _dp_mst_encoders_pre_disable(struct trilin_encoder *mst_encoder)
 	struct trilin_connector *conn = mst_encoder->connector;
 	struct trilin_dp_mst_private *mst = &dp->mst.private_info;
 	struct drm_dp_mst_topology_mgr *mgr = dp->mst_mgr;
-	struct drm_atomic_state *state = conn->state;
+	struct drm_atomic_commit *state = conn->state;
 	struct drm_dp_mst_topology_state *old_mst_state, *new_mst_state,
 		*mst_state;
 	struct drm_dp_mst_atomic_payload *old_payload, *new_payload;
@@ -662,7 +662,9 @@ static void _dp_mst_encoders_pre_disable(struct trilin_encoder *mst_encoder)
 	new_payload =
 		drm_atomic_get_mst_payload_state(new_mst_state, conn->port);
 
-	drm_dp_remove_payload(mgr, new_mst_state, old_payload, new_payload);
+	drm_dp_remove_payload_part1(mgr, new_mst_state, new_payload);
+	drm_dp_remove_payload_part2(mgr, new_mst_state, old_payload,
+				    new_payload);
 	trilin_dp_mst_update_timeslots(mst, new_mst_state, mst_encoder);
 
 	mst_encoder->vcpi = 0;
@@ -765,7 +767,7 @@ static int trilin_mst_encoder_atomic_check(struct drm_encoder *encoder,
 {
 	struct trilin_encoder *mst_encoder = encoder_to_trilin(encoder);
 	struct trilin_dp *dp = mst_encoder->dp;
-	struct drm_atomic_state *state = conn_state->state;
+	struct drm_atomic_commit *state = conn_state->state;
 	struct drm_connector *connector = conn_state->connector;
 	struct trilin_connector *conn = connector_to_trilin(connector);
 	struct drm_display_mode *adjusted_mode = &crtc_state->adjusted_mode;
@@ -797,9 +799,10 @@ static int trilin_mst_encoder_atomic_check(struct drm_encoder *encoder,
 		ret = trilin_dp_encoder_compute_config(encoder, crtc_state, conn_state, suggest_bpc);
 		if (ret < 0)
 			break;
-		if (!mst_state->pbn_div)
+		if (!mst_state->pbn_div.full)
 			mst_state->pbn_div =
-				drm_dp_get_vc_payload_bw(mst_mgr, dp->mode.link_rate, dp->mode.lane_cnt);
+				drm_dp_get_vc_payload_bw(dp->mode.link_rate,
+							 dp->mode.lane_cnt);
 
 		mst_encoder->pbn = drm_dp_calc_pbn_mode(adjusted_mode->clock, conn->config.bpp << 4);
 		mst_encoder->num_slots = drm_dp_atomic_find_time_slots(state, mst_mgr, mst_port, mst_encoder->pbn);
