@@ -1,114 +1,92 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * CIX CPU IPA support driver
+ * Generic Cix IPA support driver
  *
- * Copyright (C) 2024 Cix Technology Group Co., Ltd.
+ * Copyright 2024 Cix Technology Group Co., Ltd.All Rights Reserved.
  */
 
-#include <linux/cix/cpu_ipa.h>
-#include <linux/cpu.h>
 #include <linux/device.h>
 #include <linux/export.h>
-#include <linux/io.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
-#include <asm/cputype.h>
 
-#define REG_OFFSET	0x40
+#define REG_OFFSET 0x40
 
-struct cpu_ipa_info {
-	u32 off_cnt;
-	u32 rsvd[13];
-	s32 dynamic_power;
-	s32 static_power;
-};
+typedef struct {
+	volatile uint32_t off_cnt;
+	uint32_t rsvd[13];
+	int32_t dynamic_power;
+	int32_t static_power;
+} CPU_IPA_INFO;
 
 struct cpu_ipa {
 	struct device *dev;
 	void __iomem *regs;
-};
+} *ci;
 
-static struct cpu_ipa *cpu_ipa_dev;
-
-static struct cpu_ipa_info *cpu_ipa_info_for_cpu(unsigned int cpu)
+static int cix_get_static_power(int cpu)
 {
-	int pcpu;
+	int pcpu = MPIDR_AFFINITY_LEVEL(cpu_logical_map(cpu), 1);
 
-	if (!cpu_ipa_dev || !cpu_ipa_dev->regs)
-		return NULL;
-
-	pcpu = MPIDR_AFFINITY_LEVEL(cpu_logical_map(cpu), 1);
-	if (pcpu > 12)
-		return NULL;
-
-	return cpu_ipa_dev->regs + pcpu * REG_OFFSET;
-}
-
-static int cix_get_static_power(unsigned int cpu)
-{
-	struct cpu_ipa_info *info = cpu_ipa_info_for_cpu(cpu);
-
-	if (!info)
-		return 0;
+	CPU_IPA_INFO *info = ci->regs + pcpu * REG_OFFSET;
 
 	return info->static_power;
 }
 
-static int cix_get_dynamic_power(unsigned int cpu)
+static int cix_get_dynamic_power(int cpu)
 {
-	struct cpu_ipa_info *info = cpu_ipa_info_for_cpu(cpu);
+	int pcpu = MPIDR_AFFINITY_LEVEL(cpu_logical_map(cpu), 1);
 
-	if (!info)
-		return 0;
+	CPU_IPA_INFO *info = ci->regs + pcpu * REG_OFFSET;
 
 	return info->dynamic_power;
 }
 
-int cix_get_static_power_cpus(const struct cpumask *cpus)
+int cix_get_static_power_cpus(cpumask_var_t cpus)
 {
-	unsigned int cpu, total_power = 0;
+	int cpu;
+	int total_power = 0;
 
-	for_each_cpu(cpu, cpus)
+	for_each_cpu(cpu, cpus) {
 		total_power += cix_get_static_power(cpu);
-
+	}
 	return total_power;
 }
-EXPORT_SYMBOL_GPL(cix_get_static_power_cpus);
+EXPORT_SYMBOL(cix_get_static_power_cpus);
 
-int cix_get_dynamic_power_cpus(const struct cpumask *cpus)
+int cix_get_dynamic_power_cpus(cpumask_var_t cpus)
 {
-	unsigned int cpu, total_power = 0;
+	int cpu;
+	int total_power = 0;
 
-	for_each_cpu(cpu, cpus)
+	for_each_cpu(cpu, cpus) {
 		total_power += cix_get_dynamic_power(cpu);
-
+	}
 	return total_power;
 }
-EXPORT_SYMBOL_GPL(cix_get_dynamic_power_cpus);
+EXPORT_SYMBOL(cix_get_dynamic_power_cpus);
 
 static int cpu_ipa_probe(struct platform_device *pdev)
 {
-	struct cpu_ipa *ipa;
+	struct device *dev = &pdev->dev;
 
-	ipa = devm_kzalloc(&pdev->dev, sizeof(*ipa), GFP_KERNEL);
-	if (!ipa)
+	ci = devm_kzalloc(&pdev->dev, sizeof(*ci), GFP_KERNEL);
+	if (!ci)
 		return -ENOMEM;
 
-	ipa->regs = devm_platform_ioremap_resource(pdev, 0);
-	if (IS_ERR(ipa->regs))
-		return PTR_ERR(ipa->regs);
+	ci->regs = devm_platform_ioremap_resource(pdev, 0);
+	if (IS_ERR(ci->regs))
+		return PTR_ERR(ci->regs);
 
-	ipa->dev = &pdev->dev;
-	platform_set_drvdata(pdev, ipa);
-	cpu_ipa_dev = ipa;
-
+	ci->dev = dev;
+	platform_set_drvdata(pdev, ci);
 	return 0;
 }
 
-static void cpu_ipa_remove(struct platform_device *pdev)
+static void cpu_ipa_shutdown(struct platform_device *pdev)
 {
-	cpu_ipa_dev = NULL;
+	return;
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -135,15 +113,15 @@ MODULE_DEVICE_TABLE(of, cpu_ipa_of_match);
 
 static struct platform_driver cpu_ipa_platdrv = {
 	.probe		= cpu_ipa_probe,
-	.remove		= cpu_ipa_remove,
+	.shutdown	= cpu_ipa_shutdown,
 	.driver = {
 		.name	= "cpu-ipa",
-		.pm	= pm_sleep_ptr(&cpu_ipa_pm),
-		.of_match_table = cpu_ipa_of_match,
+		.pm	= &cpu_ipa_pm,
+		.of_match_table = of_match_ptr(cpu_ipa_of_match),
 	},
 };
 module_platform_driver(cpu_ipa_platdrv);
 
-MODULE_DESCRIPTION("CIX CPU IPA support driver");
-MODULE_AUTHOR("Cix Technology Group Co., Ltd.");
-MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("Generic Cix IPA support driver");
+MODULE_AUTHOR("Cixtech,Inc.");
+MODULE_LICENSE("GPL v2");
