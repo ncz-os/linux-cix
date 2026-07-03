@@ -215,10 +215,9 @@ static int trilin_dptx_cix_probe(struct platform_device *pdev)
 	return component_add(&pdev->dev, &trilin_dptx_cix_ops);
 }
 
-static int trilin_dptx_cix_remove(struct platform_device *pdev)
+static void trilin_dptx_cix_remove(struct platform_device *pdev)
 {
 	component_del(&pdev->dev, &trilin_dptx_cix_ops);
-	return 0;
 }
 
 #ifdef CONFIG_PM
