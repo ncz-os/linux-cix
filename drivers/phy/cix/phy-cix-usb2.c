@@ -6,6 +6,8 @@
 #include <linux/reset.h>
 #include <linux/kernel.h>
 #include <linux/of_platform.h>
+#include <linux/platform_device.h>
+#include <linux/module.h>
 
 static const struct acpi_device_id cix_usb2phy_acpi_match[] = {
 	{ "CIXH2032" },
