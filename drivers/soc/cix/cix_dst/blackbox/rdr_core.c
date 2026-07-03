@@ -22,7 +22,6 @@
 #include <linux/delay.h>
 #include <linux/syscalls.h>
 #include <linux/sched/debug.h>
-#include <linux/hardirq.h>
 #include <uapi/linux/sched/types.h>
 #include "rdr_field.h"
 #include "rdr_print.h"
@@ -150,7 +149,7 @@ static bool rdr_syserr_process_ap(u32 modid, u32 arg1, u32 arg2,
 	BB_PR_START();
 	if ((info->e_reboot_priority != RDR_REBOOT_NOW &&
 	     !(info->e_reset_core_mask & RDR_AP)) &&
-	    (in_atomic() || irqs_disabled() || in_hardirq()))
+	    (in_atomic() || irqs_disabled() || in_irq()))
 		return false;
 	preempt_disable();
 	console_loglevel = 7;
@@ -231,7 +230,7 @@ void rdr_system_error(u32 modid, u32 arg1, u32 arg2)
 	char *modid_str = NULL;
 
 	BB_PR_START();
-	if (in_atomic() || irqs_disabled() || in_hardirq())
+	if (in_atomic() || irqs_disabled() || in_irq())
 		BB_ERR("in atomic or irqs disabled or in irq\n");
 	modid_str = blackbox_get_modid_str(modid);
 	BB_ERR("blackbox receive exception modid is [0x%x][%s]!\n", modid,
@@ -480,9 +479,10 @@ err:
 	return -1;
 }
 
-static void rdr_remove(struct platform_device *pdev)
+static int rdr_remove(struct platform_device *pdev)
 {
 	rdr_dump_exit();
+	return 0;
 }
 
 static struct platform_driver rdr_driver = {

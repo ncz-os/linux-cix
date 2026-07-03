@@ -9,31 +9,6 @@
 #include "include/rdr_ap_adapter.h"
 #include "../rdr_print.h"
 
-/* struct suspend_stats is private in newer kernels - use compatible local definition */
-#define REC_FAILED_NUM 2
-
-struct suspend_stats {
-	unsigned int success;
-	unsigned int fail;
-	unsigned int failed_freeze;
-	unsigned int failed_prepare;
-	unsigned int failed_suspend;
-	unsigned int failed_suspend_late;
-	unsigned int failed_suspend_noirq;
-	unsigned int failed_resume;
-	unsigned int failed_resume_early;
-	unsigned int failed_resume_noirq;
-	int last_failed_dev;
-	char failed_devs[REC_FAILED_NUM][40];
-	int last_failed_errno;
-	int errno[REC_FAILED_NUM];
-	int last_failed_step;
-	u64 last_hw_sleep;
-	u64 total_hw_sleep;
-	u64 max_hw_sleep;
-	enum suspend_stat_step failed_steps[REC_FAILED_NUM];
-};
-
 #define SUSPEND_MAGIC 0x1F2E3D4C
 #define MAX_WAKEUP_NAME_LEN 64
 #define MAX_WAKEUP_RECORD_NUM 20
@@ -115,8 +90,9 @@ void ap_suspend_dump(u32 modid, u32 etype)
 	if (!g_suspend_info)
 		return;
 
-	/* save suspend state - suspend_stats is static in newer kernels, skip for now */
-	memset(&g_suspend_info->stats, 0, sizeof(struct suspend_stats));
+	/*save suspend state*/
+	memcpy(&g_suspend_info->stats, &suspend_stats,
+	       sizeof(struct suspend_stats));
 
 	/*save wake up info*/
 	wake_info = &g_suspend_info->wake_info;

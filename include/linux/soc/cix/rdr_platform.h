@@ -5,8 +5,8 @@
 #include <linux/soc/cix/rdr_types.h>
 #include <linux/soc/cix/rdr_pub.h>
 #include <linux/soc/cix/rdr_platform_ap_hook.h>
-#include <linux/soc/cix/mntn_public_interface.h>
-#include <linux/soc/cix/mntn_subtype_exception.h>
+#include <mntn_public_interface.h>
+#include <mntn_subtype_exception.h>
 
 /*record log length*/
 #define LOG_PATH_LEN 96

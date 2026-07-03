@@ -26,7 +26,7 @@
 #include <linux/types.h>
 #include <linux/platform_device.h>
 #include <linux/soc/cix/rdr_pub.h>
-#include <linux/soc/cix/mntn_public_interface.h>
+#include <mntn_public_interface.h>
 
 #define PATH_MAXLEN 128
 #define RDR_LOG_PATH_LEN 32

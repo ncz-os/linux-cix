@@ -3,7 +3,7 @@
 
 #include <linux/soc/cix/rdr_pub.h>
 #include <linux/soc/cix/rdr_platform.h>
-#include <linux/soc/cix/mntn_subtype_exception.h>
+#include <mntn_subtype_exception.h>
 #include <linux/soc/cix/dst_audio_timeout_error.h>
 #include <linux/soc/cix/util.h>
 #include "dst_print.h"

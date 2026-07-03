@@ -17,7 +17,7 @@
  */
 
 #include <linux/of_address.h>
-#include <linux/soc/cix/mntn_dump_interface.h>
+#include <mntn_dump_interface.h>
 #include "dst_print.h"
 #include <linux/soc/cix/util.h>
 #include <linux/acpi.h>

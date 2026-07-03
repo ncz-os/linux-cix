@@ -9,7 +9,6 @@
 #include <linux/version.h>
 #include <asm/stacktrace.h>
 #include <asm/system_misc.h>
-#include <linux/soc/cix/plat_hw_breakpoint.h>
 #include "../dst_print.h"
 
 #define HW_GET_BP_ATTR(bp) (&bp->attr.bp_attr)
@@ -60,20 +59,11 @@ static struct hw_bp_manage g_hw_manage;
 const char bp_type_str[4][30] = { "HW_BREAKPOINT_R", "HW_BREAKPOINT_W",
 				  "HW_BREAKPOINT_RW", "HW_BREAKPOINT_X" };
 
+extern void toggle_bp_registers(int reg, enum dbg_active_el el, int enable);
 extern void hw_del_all_contion(u64 addr);
 bool hw_check_contion(struct list_head *head, const struct pt_regs *regs,
 		      const hw_bp_value *value, u64 access);
 extern void hw_show_all_contion(u64 addr);
-
-/* Stub for toggle_bp_registers - kernel function is static and not exported */
-void toggle_bp_registers(int reg, enum dbg_active_el el, int enable)
-{
-	/* This function is implemented as static in arch/arm64/kernel/hw_breakpoint.c
-	 * For proper breakpoint toggling support, the kernel would need to export this
-	 * function. As a workaround, we use the standard hw_breakpoint_enable/disable
-	 * functions which should handle the register toggling internally.
-	 */
-}
 
 void hw_manage_lock(void)
 {
@@ -272,20 +262,6 @@ static int hw_step_brk_fn(struct pt_regs *regs, unsigned int esr)
 	return handled_exception;
 }
 
-/* Stub implementations for kernel step hook API */
-static LIST_HEAD(g_step_hook_list);
-
-void register_kernel_step_hook(struct step_hook *hook)
-{
-	INIT_LIST_HEAD(&hook->node);
-	list_add(&hook->node, &g_step_hook_list);
-}
-
-void unregister_kernel_step_hook(struct step_hook *hook)
-{
-	list_del(&hook->node);
-}
-
 static struct step_hook ghw_step_hook = { .fn = hw_step_brk_fn };
 
 void hw_bp_perf_handler(struct perf_event *bp, struct perf_sample_data *data,
@@ -321,31 +297,6 @@ void hw_bp_perf_handler(struct perf_event *bp, struct perf_sample_data *data,
 	}
 }
 
-static void hw_show_regs(struct pt_regs *regs)
-{
-	int i, top_reg;
-	u64 lr, sp;
-
-	lr = regs->regs[30];
-	sp = regs->sp;
-	top_reg = 29;
-
-	DST_PN("pc : %pS\n", (void *)regs->pc);
-	DST_PN("lr : %pS\n", (void *)ptrauth_strip_kernel_insn_pac(lr));
-	DST_PN("sp : %016llx\n", sp);
-
-	if (system_uses_irq_prio_masking())
-		DST_PN("pmr_save: %08x\n", regs->pmr);
-
-	i = top_reg;
-	while (i >= 0) {
-		DST_PN("x%-2d: %016llx", i, regs->regs[i]);
-		while (i-- % 3)
-			pr_cont(" x%-2d: %016llx", i, regs->regs[i]);
-		pr_cont("\n");
-	}
-}
-
 static void hw_bp_handler_default(const hw_bp_callback_data *info,
 				  const struct pt_regs *regs)
 {
@@ -361,14 +312,13 @@ static void hw_bp_handler_default(const hw_bp_callback_data *info,
 	}
 	DST_PN("times: read=%llu, write=%llu, exec=%llu\n", info->times.read,
 		info->times.write, info->times.exec);
-	DST_PN("CPU: %d PID: %d Comm: %.20s\n", info->cpu, info->pid,
-		info->comm);
-	hw_show_regs((struct pt_regs *)regs);
-	DST_PN("stack trace:\n");
+	__show_regs((struct pt_regs *)regs);
+	pr_info("stack trace:\n");
 	for (i = 0; i < HW_BP_TRACE_DEPTH; i++) {
-		if (info->k_stack[i] == 0)
+		if (info->k_stack[i] == 0) {
 			break;
-		DST_PN("\t %pS\n", (void *)info->k_stack[i]);
+		}
+		pr_info("\t %pS\n", (void *)info->k_stack[i]);
 	}
 }
 

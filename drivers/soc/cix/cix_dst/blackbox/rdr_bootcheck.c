@@ -19,132 +19,13 @@
 
 #include <linux/delay.h>
 #include <linux/syscalls.h>
-#include <linux/sched.h>
-#include <linux/sched/task.h>
-#include <linux/pid.h>
-#include <linux/fs.h>
-#include <linux/fs_struct.h>
-#include <linux/namei.h>
-#include <linux/path.h>
-#include <linux/jiffies.h>
 #include <linux/soc/cix/boot_postcode.h>
-#include <linux/soc/cix/dst_reboot_reason.h>
 #include "rdr_field.h"
 #include "rdr_print.h"
 
 #define RDR_NEED_SAVE_MEM 1
 #define RDR_DONTNEED_SAVE_MEM 0
 #define PSTORE_PATH "/sys/fs/pstore"
-
-/* Max time to wait for userspace init (PID 1) to switch to the real rootfs */
-#define RDR_ADOPT_ROOT_TIMEOUT_MS 30000
-#define RDR_ADOPT_ROOT_POLL_MS 200
-
-/* Max time to wait for the rootfs to be remounted read-write */
-#define RDR_RW_WAIT_TIMEOUT_MS 60000
-#define RDR_RW_WAIT_POLL_MS 200
-
-/*
- * This thread is created during late_initcall_sync, before the kernel execs
- * userspace init. On systems that boot via an initramfs, the kthread inherits
- * the early (initramfs) rootfs as its filesystem root. When userspace later
- * does switch_root to the real rootfs, the kthread keeps the OLD root, so any
- * files it writes (e.g. /var/log/cix/bbox/...) land in the discarded initramfs
- * and are invisible to userspace.
- *
- * Wait for PID 1 to come up with a root different from ours (i.e. it has
- * switched to the real rootfs), then give this kthread a private fs_struct and
- * adopt PID 1's root. After this, absolute paths resolve against the real
- * rootfs. If there is no initramfs (PID 1 root == our root), this simply times
- * out and we keep the original root, which is already correct.
- */
-static int rdr_adopt_init_root(void)
-{
-	struct path early = { .mnt = NULL, .dentry = NULL };
-	struct path root = { .mnt = NULL, .dentry = NULL };
-	struct task_struct *initp;
-	unsigned long deadline;
-	int ret = -ENOENT;
-
-	get_fs_root(current->fs, &early);
-	deadline = jiffies + msecs_to_jiffies(RDR_ADOPT_ROOT_TIMEOUT_MS);
-
-	do {
-		rcu_read_lock();
-		initp = pid_task(find_vpid(1), PIDTYPE_PID);
-		if (initp)
-			get_task_struct(initp);
-		rcu_read_unlock();
-
-		if (initp) {
-			task_lock(initp);
-			if (initp->fs)
-				get_fs_root(initp->fs, &root);
-			task_unlock(initp);
-			put_task_struct(initp);
-		}
-
-		if (root.dentry &&
-		    (root.dentry != early.dentry || root.mnt != early.mnt)) {
-			ret = unshare_fs_struct();
-			if (!ret) {
-				set_fs_root(current->fs, &root);
-				set_fs_pwd(current->fs, &root);
-				BB_PN("adopted PID 1 root for bbox bootcheck\n");
-			} else {
-				BB_ERR("unshare_fs_struct failed: %d\n", ret);
-			}
-			path_put(&root);
-			break;
-		}
-
-		if (root.dentry) {
-			path_put(&root);
-			root.dentry = NULL;
-			root.mnt = NULL;
-		}
-		msleep(RDR_ADOPT_ROOT_POLL_MS);
-	} while (time_before(jiffies, deadline));
-
-	if (ret)
-		BB_PN("kept original root (no rootfs switch detected)\n");
-
-	path_put(&early);
-	return ret;
-}
-
-/*
- * The kernel command line mounts the rootfs read-only ("ro"); userspace
- * (systemd-remount-fs) only flips it to read-write a bit later in boot. This
- * kthread can reach the saving stage before that happens, in which case every
- * file/dir creation fails with -EROFS. Wait until the filesystem backing our
- * root is writable before attempting to write the crash logs.
- */
-static int rdr_wait_rootfs_writable(void)
-{
-	unsigned long deadline;
-	struct path root;
-	bool ro = true;
-
-	deadline = jiffies + msecs_to_jiffies(RDR_RW_WAIT_TIMEOUT_MS);
-
-	do {
-		if (kern_path("/", LOOKUP_FOLLOW | LOOKUP_DIRECTORY,
-			      &root) == 0) {
-			ro = sb_rdonly(root.dentry->d_sb);
-			path_put(&root);
-			if (!ro) {
-				BB_PN("rootfs is writable\n");
-				return 0;
-			}
-		}
-		msleep(RDR_RW_WAIT_POLL_MS);
-	} while (time_before(jiffies, deadline));
-
-	BB_ERR("rootfs still read-only after %dms, log saving may fail\n",
-	       RDR_RW_WAIT_TIMEOUT_MS);
-	return -EROFS;
-}
 
 /*
  * check status of last reboot.
@@ -155,9 +36,6 @@ static int rdr_wait_rootfs_writable(void)
 static int rdr_check_exceptionboot(struct rdr_exception_info_s *info)
 {
 	u32 temp_reboot_type;
-	u32 temp_sub_type;
-	u32 hw_reboot_type;
-	bool bbox_valid;
 	struct rdr_base_info_s *base = NULL;
 	struct rdr_struct_s *tmpbb = NULL;
 
@@ -167,49 +45,7 @@ static int rdr_check_exceptionboot(struct rdr_exception_info_s *info)
 	}
 
 	temp_reboot_type = rdr_get_reboot_type();
-	temp_sub_type = rdr_get_exec_subtype_value();
-	hw_reboot_type = get_hw_reboot_reason();
-	BB_PN("reboot_type = 0x%x, hw_reboot_type = 0x%x\n", temp_reboot_type, hw_reboot_type);
-
-	/*
-	 * Read the previous-session bbox header. It is only trustworthy when the
-	 * magic matches (rdr_create_last_backup() also validated the BCH ECC
-	 * before exposing it as the "last" head).
-	 */
-	tmpbb = rdr_get_head(true);
-	bbox_valid = (tmpbb != NULL && tmpbb->top_head.magic == FILE_MAGIC);
-	if (bbox_valid) {
-		base = &(tmpbb->base_info);
-		BB_PN("bbox header: start_flag=0x%x, savefile_flag=0x%x, modid=0x%x, e_type=0x%x\n",
-		      base->start_flag, base->savefile_flag, base->modid,
-		      base->e_type);
-	}
-
-	/*
-	 * The software reboot-reason register lives in retention memory that the
-	 * firmware/PSCI rewrites during SYSTEM_RESET. The kernel writes AP_PANIC
-	 * (0x61) before resetting, but on the next boot the register can read
-	 * back as PM_REBOOT (0x46), COLDBOOT (0x10) or even 0. Worse, the
-	 * firmware appears to report PM_REBOOT for *any* software reset, so the
-	 * register cannot distinguish a real panic from a normal reboot at all.
-	 *
-	 * The bbox header in reserved DRAM, on the other hand, is written by the
-	 * kernel itself (rdr_fill_edata) and is not touched by firmware across a
-	 * warm reset, so it is the authoritative record of the previous reboot:
-	 *  - real exception  -> e_type in [LABEL1, LABEL4)  (e.g. AP_PANIC)
-	 *  - clean reboot    -> e_type == 0 (header was re-initialised at boot)
-	 *
-	 * Trust the header in both directions whenever it is valid; only fall
-	 * back to the (unreliable) register reason when there is no valid header.
-	 */
-	if (bbox_valid) {
-		if (base->e_type != temp_reboot_type)
-			BB_PN("register reason 0x%x ignored, using bbox header e_type=0x%x\n",
-			      temp_reboot_type, base->e_type);
-		temp_reboot_type = base->e_type;
-		temp_sub_type = base->e_subtype;
-	}
-
+	BB_PN("reboot_type = 0x%x\n", temp_reboot_type);
 	/* If the exception type is normal, do not need to save log */
 	if (temp_reboot_type < REBOOT_REASON_LABEL1 ||
 	    (temp_reboot_type >= REBOOT_REASON_LABEL4)) {
@@ -221,12 +57,14 @@ static int rdr_check_exceptionboot(struct rdr_exception_info_s *info)
 	info->e_from_core = RDR_AP;
 	info->e_notify_core_mask = RDR_AP;
 	info->e_exce_type = temp_reboot_type;
-	info->e_exce_subtype = temp_sub_type;
+	info->e_exce_subtype = rdr_get_exec_subtype_value();
 
-	/* Without a valid header we cannot tell whether the log was saved */
-	if (!bbox_valid) {
+	tmpbb = rdr_get_head(true);
+	if (!tmpbb) {
 		return RDR_DONTNEED_SAVE_MEM;
 	}
+	/* Get the bbox header struct */
+	base = &(tmpbb->base_info);
 
 	/* If the log is not saved before resetting, you need to save it again after the reset is started */
 	if (base->start_flag != RDR_PROC_EXEC_DONE ||
@@ -293,20 +131,11 @@ static int rdr_bootcheck_thread_body(void *arg)
 
 	(void)rdr_dump_init();
 
-	/*
-	 * Make sure our file writes land in the real userspace rootfs, not the
-	 * early initramfs root this kthread was created with.
-	 */
-	(void)rdr_adopt_init_root();
-
 	BB_PN("============wait for fs ready start =============\n");
 	while (rdr_wait_partition(PSTORE_PATH, RDR_WAIT_PARTITION_TIME,
 				  (S_IFDIR | S_IRUSR)) != 0) {
 	}
 	BB_PN("============wait for fs ready e n d =============\n");
-
-	/* Rootfs starts read-only ("ro" in cmdline); wait for the rw remount */
-	(void)rdr_wait_rootfs_writable();
 
 	if (rdr_check_exceptionboot(&info) != RDR_NEED_SAVE_MEM) {
 		BB_PN("need not save dump file when boot\n");

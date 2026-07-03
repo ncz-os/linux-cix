@@ -21,10 +21,9 @@
 #include <linux/io.h>
 #include <linux/arm-smccc.h>
 #include <linux/soc/cix/util.h>
-#include <linux/soc/cix/mntn_public_interface.h>
+#include <mntn_public_interface.h>
 #include <linux/zlib.h>
 #include <linux/mm.h>
-#include <linux/vmalloc.h>
 #include "dst_print.h"
 
 #define PATH_MAXLEN 128
@@ -133,11 +132,9 @@ int rdr_rm_file(const char *nodename)
 	int deleted = 0;
 	int err;
 
-	dentry = kern_path_parent(nodename, &parent);
+	dentry = kern_path_locked(nodename, &parent);
 	if (IS_ERR(dentry))
 		return PTR_ERR(dentry);
-
-	inode_lock(d_inode(parent.dentry));
 
 	if (d_really_is_positive(dentry)) {
 		struct kstat stat;
@@ -319,21 +316,20 @@ static int create_dir(const char *name, umode_t mode)
 	int err;
 
 	DST_DBG("need create dir %s\n", name);
-	dentry = start_creating_path(AT_FDCWD, name, &path, LOOKUP_DIRECTORY);
+	dentry = kern_path_create(AT_FDCWD, name, &path, LOOKUP_DIRECTORY);
 	if (IS_ERR(dentry)) {
-		DST_ERR("failed to start_creating_path: %s %ld\n", name,
+		DST_ERR("failed to kern_path_create: %s %ld\n", name,
 			PTR_ERR(dentry));
 		return PTR_ERR(dentry);
 	}
 
-	dentry = vfs_mkdir(rdr_mnt_idmap, d_inode(path.dentry), dentry, mode, NULL);
-	if (!IS_ERR(dentry))
+	err = vfs_mkdir(rdr_mnt_idmap, d_inode(path.dentry), dentry, mode);
+	if (!err)
 		/* mark as kernel-created inode */
 		d_inode(dentry)->i_private = (void *)g_rdr_flag;
 	else
-		DST_ERR("failed to mkdir: %s %ld\n", name, PTR_ERR(dentry));
-	err = PTR_ERR_OR_ZERO(dentry);
-	end_creating_path(&path, dentry);
+		DST_ERR("failed to mkdir: %s %d\n", name, err);
+	done_path_create(&path, dentry);
 	return err;
 }
 
@@ -399,18 +395,16 @@ int rdr_rm_dir(const char *name)
 
 	DST_DBG("rm dir:%s\n", name);
 
-	dentry = kern_path_parent(name, &parent);
+	dentry = kern_path_locked(name, &parent);
 	if (IS_ERR(dentry))
 		return PTR_ERR(dentry);
-
-	inode_lock(d_inode(parent.dentry));
 
 	if (!d_is_dir(dentry)) {
 		err = -ENOENT;
 		goto exit_rm;
 	}
 
-	hlist_for_each_entry(child, &dentry->d_children, d_sib) {
+	list_for_each_entry(child, &dentry->d_subdirs, d_child) {
 		if (!d_inode(child))
 			continue;
 		d_inode(child)->i_private = NULL;
@@ -419,7 +413,7 @@ int rdr_rm_dir(const char *name)
 			memset(path, 0, PATH_MAXLEN);
 			err = snprintf(path, PATH_MAXLEN, "%s/%s", name,
 				       child->d_name.name);
-			if (err > 0)
+			if (err)
 				err = rdr_rm_dir(path);
 			else
 				err = -EIO;
@@ -433,7 +427,7 @@ int rdr_rm_dir(const char *name)
 		}
 	}
 
-	err = vfs_rmdir(rdr_mnt_idmap, d_inode(parent.dentry), dentry, NULL);
+	err = vfs_rmdir(rdr_mnt_idmap, d_inode(parent.dentry), dentry);
 	if (err)
 		DST_ERR("rm dir %s failed\n", name);
 
@@ -448,18 +442,14 @@ unsigned long dst_get_phy_addr(unsigned long addr)
 {
 	struct mm_struct *mm = NULL;
 	struct vm_area_struct *vma;
-	struct page *page = NULL;
+	struct page *page;
 	unsigned long val = 0;
-	long ret;
 
 	if (is_ttbr0_addr(addr)) {
 		mm = current->active_mm;
 		DST_DBG("user addr, mm: %px\n", mm);
 	} else if (is_ttbr1_addr(addr)) {
-		/* TTBR1 - kernel address */
-		if (virt_addr_valid((void *)addr)) {
-			return virt_to_phys((void *)addr);
-		}
+		/* TTBR1 */
 		mm = &init_mm;
 		DST_DBG("kernel addr, mm: %px\n", mm);
 	}
@@ -478,12 +468,9 @@ unsigned long dst_get_phy_addr(unsigned long addr)
 	if (addr < vma->vm_start || addr > vma->vm_end)
 		return 0;
 
-	/* Use get_user_pages to get the page */
-	mmap_read_lock(mm);
-	ret = get_user_pages(addr & PAGE_MASK, 1, FOLL_GET, &page);
-	mmap_read_unlock(mm);
-
-	if (ret != 1 || IS_ERR_OR_NULL(page))
+	page = follow_page(vma, addr, FOLL_GET);
+	DST_DBG("page: %px\n", page);
+	if (IS_ERR_OR_NULL(page))
 		return 0;
 
 	val = page_to_phys(page) | (addr & ~PAGE_MASK);
@@ -683,31 +670,3 @@ int dst_sec_call(char cmd, uint64_t arg0, uint64_t arg1, uint64_t arg2)
 		return -1;
 	return 0;
 }
-
-int get_kernel_build_time(char *blddt, int dtlen, char *bldtm, int tmlen)
-{
-	/* Using fixed values instead of __DATE__/__TIME__ to avoid
-	 * reproducible build warnings.
-	 */
-	if (blddt && dtlen > 0) {
-		strncpy(blddt, "Jan 01 2025", dtlen - 1);
-		blddt[dtlen - 1] = '\0';
-	}
-
-	if (bldtm && tmlen > 0) {
-		strncpy(bldtm, "00:00:00", tmlen - 1);
-		bldtm[tmlen - 1] = '\0';
-	}
-
-	return 0;
-}
-EXPORT_SYMBOL(get_kernel_build_time);
-
-#ifndef CONFIG_PLAT_BOOT_POSTCODE
-#include <linux/soc/cix/boot_postcode.h>
-u32 get_last_bootup_postcode(void)
-{
-	return 0;
-}
-EXPORT_SYMBOL(get_last_bootup_postcode);
-#endif
