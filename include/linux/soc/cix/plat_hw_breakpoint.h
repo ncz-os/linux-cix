@@ -3,15 +3,55 @@
 
 #include <linux/sched.h>
 #include <asm/ptrace.h>
-#include <uapi/linux/perf_event.h>
 
-struct step_hook {
-	int (*fn)(struct pt_regs *regs, unsigned long esr);
-	struct list_head node;
-};
+#define HW_BP_TRACE_DEPTH 20
 
-void register_kernel_step_hook(struct step_hook *hook);
-void unregister_kernel_step_hook(struct step_hook *hook);
+typedef struct hw_bp_value {
+	u64 old;
+	u64 new;
+	long old_flag;
+	long new_flag;
+} hw_bp_value;
+
+typedef struct hw_trigger_times {
+	u64 read;
+	u64 write;
+	u64 exec;
+} hw_trigger_times;
+
+typedef struct hw_bp_callback_data {
+	u32 type;
+	u64 addr;
+	hw_trigger_times times;
+	hw_bp_value value; /*bp value*/
+	ulong u_stack[HW_BP_TRACE_DEPTH];
+	u32 u_stack_size;
+	ulong k_stack[HW_BP_TRACE_DEPTH];
+	u32 k_stack_size;
+	int cpu;
+	int pid;
+	char comm[TASK_COMM_LEN];
+} hw_bp_callback_data;
+
+typedef void (*hw_bp_callback)(const hw_bp_callback_data *attr,
+			       const struct pt_regs *regs);
+
+typedef struct hw_bp_attr {
+	u32 type; /*bp type*/
+	u64 addr; /*The addr of the bp expected to be monitored*/
+	u64 start_addr; /*The starting address of the actual monitoring*/
+	u64 end_addr; /*The end address of the actual monitoring*/
+	u64 len; /*The length of the bp expected to be monitored*/
+	u64 real_len; /*LBN len*/
+	u32 mask; /*addr mask*/
+	hw_trigger_times times; /*trigger times*/
+	hw_bp_value value; /*bp value*/
+	hw_bp_callback handler; /*user handler*/
+	void *rule; /*trigger rule*/
+	u64 disabled : 1, //63bit
+	    access_type : 8, //55~62
+	    reserved : 55; //0~50bit
+} hw_bp_attr;
 
 /*struct of get info*/
 typedef struct hw_bp_report {

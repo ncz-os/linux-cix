@@ -4,7 +4,6 @@
 #
 
 obj-$(CONFIG_CIX_DST)			+= util.o
-obj-$(CONFIG_CIX_DST)			+= cix_ap2se_ipc.o
 obj-$(CONFIG_PLAT_PRINTK_EXT)		+= printk_ext.o
 obj-$(CONFIG_PLAT_BOOT_TIME)		+= hw_boottime.o
 obj-$(CONFIG_PLAT_BOOT_POSTCODE)	+= boot_postcode.o

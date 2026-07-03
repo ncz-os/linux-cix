@@ -23,7 +23,7 @@
 #include <linux/thread_info.h>
 #include <linux/soc/cix/rdr_types.h>
 #include <linux/soc/cix/rdr_pub.h>
-#include <linux/soc/cix/mntn_public_interface.h>
+#include <mntn_public_interface.h>
 #include <linux/version.h>
 #include <linux/tracepoint.h>
 #include <linux/sched.h>
