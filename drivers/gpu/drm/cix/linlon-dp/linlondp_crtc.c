@@ -84,7 +84,7 @@ linlondp_crtc_update_clock_ratio(struct linlondp_crtc_state *kcrtc_st)
  * Zero for success or -errno
  */
 static int linlondp_crtc_atomic_check(struct drm_crtc *crtc,
-				      struct drm_atomic_state *state)
+				      struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *crtc_state =
 		drm_atomic_get_new_crtc_state(state, crtc);
@@ -282,7 +282,7 @@ void linlondp_crtc_handle_event(struct linlondp_crtc *kcrtc,
 
 static void linlondp_wb_job_timer_callback(struct timer_list *t)
 {
-	struct linlondp_wb_timer_data *data = from_timer(data, t, timer);
+	struct linlondp_wb_timer_data *data = timer_container_of(data, t, timer);
 	struct drm_writeback_job *job;
 	unsigned long flags;
 	struct linlondp_crtc *kcrtc;
@@ -319,7 +319,7 @@ static void linlondp_set_wb_job_timer(struct linlondp_crtc *kcrtc)
 	struct linlondp_wb_connector *wb_conn = kcrtc->wb_conn;
 
 	if (wb_conn->timer_data.timer_started)
-		del_timer(&wb_conn->timer_data.timer);
+		timer_delete(&wb_conn->timer_data.timer);
 
 	wb_conn->timer_data.param = kcrtc;
 	timer_setup(&wb_conn->timer_data.timer, linlondp_wb_job_timer_callback, 0);
@@ -360,7 +360,7 @@ static void linlondp_crtc_do_flush(struct drm_crtc *crtc,
 }
 
 static void linlondp_crtc_atomic_enable(struct drm_crtc *crtc,
-					struct drm_atomic_state *state)
+					struct drm_atomic_commit *state)
 {
 	int err;
 	struct drm_crtc_state *old = drm_atomic_get_old_crtc_state(state, crtc);
@@ -505,7 +505,7 @@ void linlondp_crtc_flush_and_wait_for_flip_done(
 }
 
 static void linlondp_crtc_atomic_disable(struct drm_crtc *crtc,
-					 struct drm_atomic_state *state)
+					 struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *old = drm_atomic_get_old_crtc_state(state, crtc);
 	struct drm_crtc_state *new_state = drm_atomic_get_new_crtc_state(state, crtc);
@@ -586,7 +586,7 @@ static void linlondp_crtc_atomic_disable(struct drm_crtc *crtc,
 }
 
 static void linlondp_crtc_atomic_flush(struct drm_crtc *crtc,
-				       struct drm_atomic_state *state)
+				       struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *crtc_state =
 		drm_atomic_get_new_crtc_state(state, crtc);
