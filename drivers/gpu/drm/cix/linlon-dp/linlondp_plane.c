@@ -4,6 +4,7 @@
  * ALL RIGHTS RESERVED
  *
  */
+#include <linux/debugfs.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_blend.h>
@@ -97,7 +98,7 @@ static int linlondp_plane_init_data_flow(struct drm_plane_state *st,
  * Zero for success or -errno
  */
 static int linlondp_plane_atomic_check(struct drm_plane *plane,
-				       struct drm_atomic_state *state)
+				       struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *new_plane_state =
 		drm_atomic_get_new_plane_state(state, plane);
@@ -149,7 +150,7 @@ static int linlondp_plane_atomic_check(struct drm_plane *plane,
  * linlondp handles all the HW update in crtc->atomic_flush
  */
 static void linlondp_plane_atomic_update(struct drm_plane *plane,
-					 struct drm_atomic_state *state)
+					 struct drm_atomic_commit *state)
 {
 }
 

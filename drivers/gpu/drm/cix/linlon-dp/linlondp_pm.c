@@ -187,14 +187,14 @@ mismatch:
 void linlondp_pm_discard_and_hotplug(struct device *dev,
 				     struct drm_device *drm)
 {
-	struct drm_atomic_state *state;
+	struct drm_atomic_commit *state;
 
 	dev_info(dev, "%s: discard suspend_state, reset + hotplug\n", __func__);
 
 	mutex_lock(&drm->mode_config.mutex);
 	state = drm->mode_config.suspend_state;
 	if (state && !IS_ERR(state))
-		drm_atomic_state_put(state);
+		drm_atomic_commit_put(state);
 	drm->mode_config.suspend_state = NULL;
 	drm_mode_config_reset(drm);
 	mutex_unlock(&drm->mode_config.mutex);

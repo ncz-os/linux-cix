@@ -14,7 +14,8 @@
 #include <drm/drm_fb_helper.h>
 #include <drm/drm_module.h>
 #include <drm/drm_of.h>
-#include <drm/drm_fbdev_generic.h>
+#include <drm/clients/drm_client_setup.h>
+#include <drm/drm_fbdev_dma.h>
 #include "linlondp_dev.h"
 #include "linlondp_kms.h"
 #include "linlondp_pm.h"
@@ -137,7 +138,7 @@ static int linlondp_bind(struct device *dev)
 
 	dev_set_drvdata(dev, mdrv);
 	if (enable_fb)
-		drm_fbdev_generic_setup(&mdrv->kms->base, 32);
+		drm_client_setup(&mdrv->kms->base, NULL);
 
 	if (mdrv->mdev->enabled_by_gop)
 		pm_runtime_set_active(dev);
@@ -336,10 +337,13 @@ static int linlondp_platform_probe(struct platform_device *pdev)
 					       match);
 }
 
-static intstatic void linlondp_platform_remove(struct platform_device *pdev)
-{ce_property_read_bool(&pdev->dev, "cix,linlon-dpu-slave") ||
-	    linlondp_acpi_is_cluster_dpu_slave(&pdev->dev))
-		return linlondp_dpu_slave_remove(pdev);
+static void linlondp_platform_remove(struct platform_device *pdev)
+{
+	if (device_property_read_bool(&pdev->dev, "cix,linlon-dpu-slave") ||
+	    linlondp_acpi_is_cluster_dpu_slave(&pdev->dev)) {
+		linlondp_dpu_slave_remove(pdev);
+		return;
+	}
 	component_master_del(&pdev->dev, &linlondp_master_ops);
 }
 

@@ -4,6 +4,7 @@
  * ALL RIGHTS RESERVED
  *
  */
+#include <linux/debugfs.h>
 #include <drm/drm_framebuffer.h>
 #include "linlondp_dev.h"
 #include "linlondp_kms.h"
@@ -96,7 +97,7 @@ static int linlondp_wb_connector_get_modes(struct drm_connector *connector)
 
 static enum drm_mode_status
 linlondp_wb_connector_mode_valid(struct drm_connector *connector,
-				 struct drm_display_mode *mode)
+				 const struct drm_display_mode *mode)
 {
 	struct drm_device *dev = connector->dev;
 	struct drm_mode_config *mode_config = &dev->mode_config;
