@@ -1,6 +1,6 @@
-/* SPDX-License-Identifier: GPL-2.0+ */
+// SPDX-License-Identifier: GPL-2.0+
 /*
- * Header file for the CIX DSP IPC implementation
+ * Header file for the DSP IPC implementation
  *
  * Copyright 2024 Cix Technology Group Co., Ltd.
  */
@@ -62,24 +62,23 @@ static inline void *cix_dsp_get_data(struct cix_dsp_ipc *dsp_ipc)
 
 #if IS_ENABLED(CONFIG_CIX_DSP)
 
-int cix_dsp_ipc_send(struct cix_dsp_ipc *ipc, unsigned int idx, u32 op);
+int cix_dsp_ipc_send(struct cix_dsp_ipc *ipc, unsigned int idx, uint32_t op);
 int cix_dsp_request_mbox(struct cix_dsp_ipc *dsp_ipc);
 void cix_dsp_free_mbox(struct cix_dsp_ipc *dsp_ipc);
 
 #else
 
-static inline int cix_dsp_ipc_send(struct cix_dsp_ipc *ipc, unsigned int idx,
-				   u32 op)
+int cix_dsp_ipc_send(struct cix_dsp_ipc *ipc, unsigned int idx, uint32_t op)
 {
-	return -EOPNOTSUPP;
+	return -ENOTSUPP;
 }
 
-static inline int cix_dsp_request_mbox(struct cix_dsp_ipc *dsp_ipc)
+int cix_dsp_request_mbox(struct cix_dsp_ipc *dsp_ipc)
 {
-	return -EOPNOTSUPP;
+	return -ENOTSUPP;
 }
 
-static inline void cix_dsp_free_mbox(struct cix_dsp_ipc *dsp_ipc) {}
+void cix_dsp_free_mbox(struct cix_dsp_ipc *dsp_ipc) {};
 
 #endif
 

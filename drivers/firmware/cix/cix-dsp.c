@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0+
 /*
- * CIX DSP IPC interface driver (host side)
- *
- * This driver provides mailbox-based IPC communication helpers for
- * the Sound Open Firmware (SOF) driver to communicate with the DSP.
+ * Implementation of the DSP IPC interface (host side)
  *
  * Copyright 2024 Cix Technology Group Co., Ltd.
  */
@@ -15,20 +12,37 @@
 #include <linux/io.h>
 #include <linux/platform_device.h>
 
-static const char * const dsp_mbox_ch_names[CIX_DSP_MBOX_NUM] = {
-	"txdb",
-	"rxdb"
-};
+static const char * const dsp_mbox_ch_names[CIX_DSP_MBOX_NUM] = { "txdb", "rxdb" };
 
-/**
- * cix_dsp_ipc_send - Send an IPC message to the DSP
- * @ipc: DSP IPC context
- * @idx: Mailbox channel index (CIX_DSP_IPC_REQ or CIX_DSP_IPC_REP)
- * @msg: Message to send
- *
- * Returns 0 on success, negative error code on failure.
- */
-int cix_dsp_ipc_send(struct cix_dsp_ipc *ipc, unsigned int idx, u32 msg)
+static void __maybe_unused cix_dsp_mbox_dump_regs(struct cix_dsp_ipc *dsp_ipc)
+{
+	void __iomem *base;
+	uint32_t val;
+	int i;
+#define MBOX_BASE_AP2DSP	(0x070f0000)
+#define MBOX_BASE_DSP2AP	(0x07100000)
+#define MBOX_REG_SIZE		(0x10000)
+#define MBOX_RGE_DUMP_NUM	(20)
+#define MBOX_REG_OFFSET		(0x80)
+
+	base = ioremap(MBOX_BASE_AP2DSP, MBOX_REG_SIZE);
+	for (i = 0; i < MBOX_RGE_DUMP_NUM; i++) {
+		val = readl(base + MBOX_REG_OFFSET + 4*i);
+		dev_info(dsp_ipc->dev, "[0x%x]: 0x%x\n",
+			 MBOX_REG_OFFSET + 4*i, val);
+	}
+	iounmap(base);
+
+	base = ioremap(MBOX_BASE_DSP2AP, MBOX_REG_SIZE);
+	for (i = 0; i < MBOX_RGE_DUMP_NUM; i++) {
+		val = readl(base + MBOX_REG_OFFSET + 4*i);
+		dev_info(dsp_ipc->dev, "[0x%x]: 0x%x\n",
+			 MBOX_REG_OFFSET + 4*i, val);
+	}
+	iounmap(base);
+}
+
+int cix_dsp_ipc_send(struct cix_dsp_ipc *ipc, unsigned int idx, uint32_t msg)
 {
 	struct cix_dsp_chan *dsp_chan;
 	int ret;
@@ -64,15 +78,6 @@ static void cix_dsp_rx_callback(struct mbox_client *cl, void *msg)
 	}
 }
 
-/**
- * cix_dsp_request_mbox - Request mailbox channels for DSP IPC
- * @dsp_ipc: DSP IPC context
- *
- * Sets up the TX (request) and RX (response) mailbox channels for
- * bidirectional communication with the DSP.
- *
- * Returns 0 on success, negative error code on failure.
- */
 int cix_dsp_request_mbox(struct cix_dsp_ipc *dsp_ipc)
 {
 	struct device *dev = dsp_ipc->dev;
@@ -82,7 +87,6 @@ int cix_dsp_request_mbox(struct cix_dsp_ipc *dsp_ipc)
 	int ret;
 
 	/*
-	 * Communication model:
 	 * AP req -- txdb --> DSP
 	 *    AP <-- txdb --  DSP rsp
 	 *    AP <-- rxdb --  DSP req
@@ -99,13 +103,11 @@ int cix_dsp_request_mbox(struct cix_dsp_ipc *dsp_ipc)
 
 		dsp_chan->ipc = dsp_ipc;
 		dsp_chan->idx = i;
-		dsp_chan->ch = mbox_request_channel_byname(cl,
-							   dsp_mbox_ch_names[i]);
+		dsp_chan->ch = mbox_request_channel_byname(cl, dsp_mbox_ch_names[i]);
 		if (IS_ERR(dsp_chan->ch)) {
 			ret = PTR_ERR(dsp_chan->ch);
 			if (ret != -EPROBE_DEFER)
-				dev_err(dev,
-					"Failed to request mbox chan %s ret %d\n",
+				dev_err(dev, "Failed to request mbox chan %s ret %d\n",
 					dsp_mbox_ch_names[i], ret);
 
 			for (j = 0; j < i; j++) {
@@ -119,18 +121,15 @@ int cix_dsp_request_mbox(struct cix_dsp_ipc *dsp_ipc)
 
 	dsp_ipc->dev = dev;
 
-	dev_dbg(dev, "CIX DSP IPC mailbox channels requested\n");
+	dev_info(dev, "CIX DSP IPC Mbox request\n");
 
 	return 0;
 }
 EXPORT_SYMBOL(cix_dsp_request_mbox);
 
-/**
- * cix_dsp_free_mbox - Free mailbox channels
- * @dsp_ipc: DSP IPC context
- */
 void cix_dsp_free_mbox(struct cix_dsp_ipc *dsp_ipc)
 {
+	struct device *dev = dsp_ipc->dev;
 	struct cix_dsp_chan *dsp_chan;
 	int i;
 
@@ -139,7 +138,7 @@ void cix_dsp_free_mbox(struct cix_dsp_ipc *dsp_ipc)
 		mbox_free_channel(dsp_chan->ch);
 	}
 
-	dev_dbg(dsp_ipc->dev, "CIX DSP IPC mailbox channels freed\n");
+	dev_info(dev, "CIX DSP IPC Mbox free\n");
 }
 EXPORT_SYMBOL(cix_dsp_free_mbox);
 
@@ -157,7 +156,7 @@ static int cix_dsp_probe(struct platform_device *pdev)
 	dsp_ipc->dev = dev;
 	dev_set_drvdata(dev, dsp_ipc);
 
-	dev_dbg(dev, "CIX DSP IPC initialized\n");
+	dev_info(dev, "CIX DSP IPC initialized\n");
 
 	return 0;
 }
@@ -172,4 +171,4 @@ builtin_platform_driver(cix_dsp_driver);
 
 MODULE_AUTHOR("Joakim Zhang <joakim.zhang@cixtech.com>");
 MODULE_DESCRIPTION("CIX DSP IPC Driver");
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("GPL v2");
