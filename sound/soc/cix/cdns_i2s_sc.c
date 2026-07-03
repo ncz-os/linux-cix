@@ -1196,13 +1196,11 @@ static int cdns_i2s_sc_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int cdns_i2s_sc_remove(struct platform_device *pdev)
+static void cdns_i2s_sc_remove(struct platform_device *pdev)
 {
 	if (!pm_runtime_status_suspended(&pdev->dev))
 		pm_runtime_force_suspend(&pdev->dev);
 	pm_runtime_disable(&pdev->dev);
-
-	return 0;
 }
 
 static int __maybe_unused cdns_i2s_sc_runtime_suspend(struct device *dev)
