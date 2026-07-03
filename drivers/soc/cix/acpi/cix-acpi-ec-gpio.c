@@ -126,11 +126,11 @@ static int cix_aec_gpio_get(struct gpio_chip *gc, unsigned int gpio)
 	return cix_aec_gpio_read(aec->handle, &aec->lock, gpio);
 }
 
-static void cix_aec_gpio_set(struct gpio_chip *gc, unsigned int gpio, int value)
+static int cix_aec_gpio_set(struct gpio_chip *gc, unsigned int gpio, int value)
 {
 	struct cix_aec *aec = gpiochip_get_data(gc);
 
-	cix_aec_gpio_write(aec->handle, &aec->lock, gpio, value);
+	return cix_aec_gpio_write(aec->handle, &aec->lock, gpio, value);
 }
 
 static ssize_t gpio_count_show(struct device *dev,

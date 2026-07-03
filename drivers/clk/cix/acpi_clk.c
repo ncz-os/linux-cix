@@ -248,18 +248,18 @@ OUT:
 	return ret;
 }
 
-static long cix_acpi_clk_round_rate(struct clk_hw *hw, unsigned long rate,
-				    unsigned long *prate)
+static int cix_acpi_clk_determine_rate(struct clk_hw *hw,
+					struct clk_rate_request *req)
 {
-	/* do not support now */
-	return rate;
+	/* do not support now: accept the requested rate */
+	return 0;
 }
 
 static const struct clk_ops acpi_clk_ops = {
 	.prepare = acpi_clk_prepare,
 	.unprepare = acpi_clk_unprepare,
 	.recalc_rate = acpi_cix_clk_recalc_rate,
-	.round_rate = cix_acpi_clk_round_rate,
+	.determine_rate = cix_acpi_clk_determine_rate,
 	.set_rate = acpi_cix_clk_set_rate,
 };
 
@@ -500,9 +500,8 @@ static int cix_acpi_clk_probe(struct platform_device *pdev)
 	return status;
 }
 
-static int cix_acpi_clk_remove(struct platform_device *pdev)
+static void cix_acpi_clk_remove(struct platform_device *pdev)
 {
-	return 0;
 }
 
 static const struct acpi_device_id __maybe_unused cix_acpi_clk_match[] = {
