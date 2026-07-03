@@ -843,7 +843,7 @@ static int cix_edp_panel_platform_probe(struct platform_device *pdev)
 	return cix_edp_panel_probe(&pdev->dev, desc);
 }
 
-static int cix_edp_panel_platform_remove(struct platform_device *pdev)
+static void cix_edp_panel_platform_remove(struct platform_device *pdev)
 {
 	return cix_edp_panel_remove(&pdev->dev);
 }
