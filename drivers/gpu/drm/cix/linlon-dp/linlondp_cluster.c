@@ -499,10 +499,9 @@ static int linlondp_cluster_probe(struct platform_device *pdev)
 	return -ENODEV;
 }
 
-static int linlondp_cluster_remove(struct platform_device *pdev)
+static void linlondp_cluster_remove(struct platform_device *pdev)
 {
 	component_master_del(&pdev->dev, &linlondp_cluster_master_ops);
-	return 0;
 }
 
 /*
