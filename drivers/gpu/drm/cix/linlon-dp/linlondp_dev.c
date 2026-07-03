@@ -4,7 +4,6 @@
  * ALL RIGHTS RESERVED
  *
  */
-#include <linux/arm-smccc.h>
 #include <linux/io.h>
 #include <linux/iommu.h>
 #include <linux/of_device.h>
@@ -13,6 +12,10 @@
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/dma-mapping.h>
+#ifdef CONFIG_DEBUG_FS
+#include <linux/debugfs.h>
+#include <linux/seq_file.h>
+#endif
 
 #include <drm/drm_print.h>
 
@@ -791,6 +794,11 @@ int linlondp_dev_resume(struct linlondp_dev *mdev)
 {
 	int err = 0;
 
+	if (!mdev || !mdev->dev) {
+		WARN_ON_ONCE(1);
+		return -EINVAL;
+	}
+
 	dev_info(mdev->dev, "%s\n", __func__);
 
 #if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
@@ -815,6 +823,11 @@ int linlondp_dev_resume(struct linlondp_dev *mdev)
 
 int linlondp_dev_suspend(struct linlondp_dev *mdev)
 {
+	if (!mdev || !mdev->dev) {
+		WARN_ON_ONCE(1);
+		return -EINVAL;
+	}
+
 	dev_info(mdev->dev, "%s\n", __func__);
 
 	if (mdev->iommu && mdev->funcs->disconnect_iommu)

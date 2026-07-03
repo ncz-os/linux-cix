@@ -31,12 +31,8 @@
 #include "trilin_phy.h"
 #include "trilin_dptx.h"
 #include "trilin_drm_mst.h"
-#include "../linlon-dp/linlondp_pipeline.h"
-#include "../linlon-dp/linlondp_dev.h"
-#include "../linlon-dp/linlondp_kms.h"
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0)
-#include <drm/drm_fixed.h>
-#endif
+
+#include <linux/minmax.h>
 
 #define pipe_name(p) ((p) + 'A')
 
@@ -246,7 +242,7 @@ trilin_dp_add_mst_connector(struct drm_dp_mst_topology_mgr *mgr,
 	for (i = 0; i < dp->max_mst_encoders; i++) {
 		if (!dp->mst.mst_panels[i].in_use) {
 			dp->mst.mst_panels[i].in_use = true;
-			dp->mst.mst_panels[i].panel.stream_id = i;
+			dp->mst.mst_panels[i].panel.source_id = i;
 			dp->mst.mst_panels[i].panel.connector = conn;
 			conn->dp_panel = &dp->mst.mst_panels[i].panel;
 			break;
@@ -263,10 +259,7 @@ trilin_dp_add_mst_connector(struct drm_dp_mst_topology_mgr *mgr,
 	conn->port = port;
 	conn->dp = dp;
 	conn->type = TRILIN_OUTPUT_DP_MST;
-	conn->drm = dp->drm[0];
-
-	if (dp->drm[1] != NULL && conn->dp_panel->stream_id >= 2)
-		conn->drm = dp->drm[1];
+	conn->drm = dp->drm;
 
 	connector = &conn->base;
 
@@ -286,8 +279,6 @@ trilin_dp_add_mst_connector(struct drm_dp_mst_topology_mgr *mgr,
 
 	for (i = 0; i < dp->max_mst_encoders; i++) {
 		mst_encoder = &dp->mst.private_info.mst_encoders[i];
-		if (mst_encoder->drm != conn->drm)
-			continue;
 
 		ret = drm_connector_attach_encoder(connector, &mst_encoder->base);
 		if (ret) {
@@ -316,9 +307,9 @@ trilin_dp_add_mst_connector(struct drm_dp_mst_topology_mgr *mgr,
 		drm_connector_attach_max_bpc_property(connector, 8, 10);
 
 	DP_MST_INFO(
-		"Successfully create mst connector=%d pathprop=%s port=%d stream_id=%d\n",
+		"Successfully create mst connector=%d pathprop=%s port=%d source_id=%d\n",
 		connector->base.id, pathprop, port->port_num,
-		conn->dp_panel->stream_id);
+		conn->dp_panel->source_id);
 	return connector;
 
 err:
@@ -359,14 +350,14 @@ static void trilin_dp_mst_connector_destroy(struct drm_connector *connector)
 {
 	struct trilin_connector *conn = connector_to_trilin(connector);
 	struct trilin_dp *dp = conn->dp;
-	uint32_t id = conn->dp_panel->stream_id;
+	uint32_t id = conn->dp_panel->source_id;
 	int i;
 
 	DP_MST_DEBUG("enter: connector=%d stream%d port%d\n",
 		     connector->base.id, id, conn->port->port_num);
 
 	for (i = 0; i < dp->max_mst_encoders; i++) {
-		if (dp->mst.mst_panels[i].panel.stream_id == id) {
+		if (dp->mst.mst_panels[i].panel.source_id == id) {
 			dp->mst.mst_panels[i].in_use = false;
 			break;
 		}
@@ -410,11 +401,7 @@ static int trilin_dp_mst_get_modes(struct drm_connector *connector)
 }
 
 enum drm_mode_status trilin_dp_mst_mode_valid(struct drm_connector *connector,
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 15, 0)
 					      struct drm_display_mode *mode)
-#else
-					      const struct drm_display_mode *mode)
-#endif
 {
 	const int min_bpp = 6 * 3;
 	struct trilin_connector *conn = connector_to_trilin(connector);
@@ -445,50 +432,34 @@ trilin_mst_atomic_best_encoder(struct drm_connector *connector,
 		drm_atomic_get_new_connector_state(state, connector);
 	struct trilin_connector *conn = connector_to_trilin(connector);
 	struct trilin_dp *dp = conn->dp;
-	struct trilin_encoder *mst_encoder;
 	struct trilin_dp_mst_private *mst = &dp->mst.private_info;
-	struct linlondp_crtc *crtc = to_kcrtc(connector_state->crtc);
-	int pipe_id = 0;
+	int pipe_id = conn->dp_panel->source_id;
+	struct trilin_encoder *mst_encoder;
 
 	DP_MST_DEBUG("enter\n");
 
 	if (connector_state->best_encoder)
 		return connector_state->best_encoder;
 
-	if (crtc && crtc->master)
-		pipe_id = crtc->master->id;
-
-	DP_MST_DEBUG("name=%s crtc->master: %s pipe=%d\n",
-		     connector_state->crtc->name,
-		     crtc->master != NULL ? "true" : "false", pipe_id);
-
 	if (pipe_id >= dp->max_mst_encoders) {
-		DP_ERR("pipe_id %d too large...\n", pipe_id);
-		pipe_id = 0;
-	}
-	/*Todo..Fixme..*/
-	pipe_id = conn->dp_panel->stream_id;
-
-	mst_encoder = &mst->mst_encoders[pipe_id];
-	if (mst_encoder->id != pipe_id) {
-		DP_ERR("Should not happen. encoder id %d != pipe_id %d , not config, abort",
-		       mst_encoder->id, pipe_id);
+		DP_ERR("source_id %d >= max_mst_encoders %u\n", pipe_id,
+		       dp->max_mst_encoders);
 		return NULL;
 	}
 
-	/* encoder can be choose from different connector*/
-	if (conn->dp_panel->stream_id != pipe_id) {
-		DP_WARN("conn->dp_panel->stream_id=%d but pipe=%d. align it to pipe_id",
-			conn->dp_panel->stream_id, pipe_id);
-		conn->dp_panel->stream_id = pipe_id;
+	mst_encoder = &mst->mst_encoders[pipe_id];
+	if (mst_encoder->id != pipe_id) {
+		DP_ERR("encoder id %d != pipe_id %d, abort\n", mst_encoder->id,
+		       pipe_id);
+		return NULL;
 	}
 
 	mst_encoder->connector = conn;
 	mst_encoder->dp_panel = conn->dp_panel;
 	DP_MST_DEBUG(
-		"pipe=%d mst_encoder->id=%d stream=%d enable=%d connect_id=%d",
-		pipe_id, mst_encoder->id, conn->dp_panel->stream_id,
-		mst_encoder->enable, connector->base.id);
+		"stream=%d mst_encoder->id=%d enable=%d connector_id=%d crtc=%s\n",
+		pipe_id, mst_encoder->id, mst_encoder->enable, connector->base.id,
+		connector_state->crtc ? connector_state->crtc->name : "(null)");
 	return &mst_encoder->base;
 }
 
@@ -652,11 +623,7 @@ _dp_mst_encoders_pre_enable_part2(struct trilin_encoder *mst_encoder)
 
 	mst_state = to_drm_dp_mst_topology_state(mgr->base.state);
 	payload = drm_atomic_get_mst_payload_state(mst_state, port);
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 10, 0)
 	drm_dp_add_payload_part2(mgr, state, payload);
-#else
-	drm_dp_add_payload_part2(mgr, payload);
-#endif
 	DP_MST_DEBUG(
 		"mst encoder [%d] _pre enable part-2 complete [state=%p]\n",
 		mst_encoder->id, state);
@@ -695,12 +662,7 @@ static void _dp_mst_encoders_pre_disable(struct trilin_encoder *mst_encoder)
 	new_payload =
 		drm_atomic_get_mst_payload_state(new_mst_state, conn->port);
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 7, 0)
 	drm_dp_remove_payload(mgr, new_mst_state, old_payload, new_payload);
-#else
-	drm_dp_remove_payload_part1(mgr, new_mst_state, new_payload);
-	drm_dp_remove_payload_part2(mgr, new_mst_state, old_payload, new_payload);
-#endif
 	trilin_dp_mst_update_timeslots(mst, new_mst_state, mst_encoder);
 
 	mst_encoder->vcpi = 0;
@@ -835,17 +797,9 @@ static int trilin_mst_encoder_atomic_check(struct drm_encoder *encoder,
 		ret = trilin_dp_encoder_compute_config(encoder, crtc_state, conn_state, suggest_bpc);
 		if (ret < 0)
 			break;
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 8, 0)
 		if (!mst_state->pbn_div)
-#else
-		if (!mst_state->pbn_div.full)
-#endif
 			mst_state->pbn_div =
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 14, 0)
 				drm_dp_get_vc_payload_bw(mst_mgr, dp->mode.link_rate, dp->mode.lane_cnt);
-#else
-				drm_dp_get_vc_payload_bw(dp->mode.link_rate, dp->mode.lane_cnt);
-#endif
 
 		mst_encoder->pbn = drm_dp_calc_pbn_mode(adjusted_mode->clock, conn->config.bpp << 4);
 		mst_encoder->num_slots = drm_dp_atomic_find_time_slots(state, mst_mgr, mst_port, mst_encoder->pbn);
@@ -855,13 +809,8 @@ static int trilin_mst_encoder_atomic_check(struct drm_encoder *encoder,
 		} else {
 			drm_dp_mst_update_slots(mst_state, link_coding_cap);
 			ret = drm_dp_mst_atomic_check(state);
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 8, 0)
 			DP_MST_DEBUG("drm_dp_mst_atomic_check : %d pbn=%d num_slots=%d pbn_div=%d update state=%p (duplicated=%d)\n", ret
 				, mst_encoder->pbn, mst_encoder->num_slots, mst_state->pbn_div, state, state->duplicated);
-#else
-			DP_MST_DEBUG("drm_dp_mst_atomic_check : %d pbn=%d num_slots=%d pbn_div=%u update state=%p (duplicated=%d)\n", ret
-				, mst_encoder->pbn, mst_encoder->num_slots, mst_state->pbn_div.full, state, state->duplicated);
-#endif
 			if (ret == 0)
 				break;
 		}
@@ -896,29 +845,58 @@ int trilin_drm_mst_encoder_init(struct trilin_dp *dp, int conn_base_id)
 
 	mutex_init(&dp->mst.private_info.mst_lock);
 	mutex_init(&dp->mst.private_info.poll_irq_lock);
-	/* create fake encoders */
-	for (i = 0; i < dp->max_mst_encoders; i++) {
-		mst_encoder = &dp->mst.private_info.mst_encoders[i];
-		encoder = &mst_encoder->base;
-		mst_encoder->id = i;
-		mst_encoder->dp = dp;
-		//fixme...
-		mst_encoder->drm = dp->drm[0];
-		if (dp->drm[1] != NULL && i >= 2) //fixme
-			mst_encoder->drm = dp->drm[1];
-		encoder->possible_crtcs =
-			TRILIN_DPTX_POSSIBLE_CRTCS_MST; //1 << i; // crtc0 only for encoder0
+	/*
+	 * MST virtual encoders must allow every cluster CRTC that can feed
+	 * this DP; otherwise atomic check fails with "incompatible with [CRTC:…]".
+	 */
+	{
+		u32 mst_possible_crtcs = 0;
+		struct drm_crtc *crtc;
 
-		drm_encoder_init(mst_encoder->drm, encoder, &trilin_dp_mst_enc_funcs,
-				 DRM_MODE_ENCODER_DPMST, "DP-MST %c",
-				 pipe_name(i));
-		drm_encoder_helper_add(encoder,
-				       &trilin_dp_encoder_helper_funcs);
-		DP_DEBUG("create encoder%d success", i);
+		drm_for_each_crtc(crtc, dp->drm)
+			mst_possible_crtcs |= drm_crtc_mask(crtc);
+
+		/*
+		 * CRTC list can be partial when this runs (DP bind vs KMS init).
+		 * Always OR in bits [0 .. num_crtc-1] so cluster CRTCs like crtc-2
+		 * are allowed even if drm_for_each_crtc only saw crtc-0/1 so far.
+		 */
+		if (dp->drm->mode_config.num_crtc > 0) {
+			unsigned int n = min_t(unsigned int,
+					       (unsigned int)dp->drm->mode_config.num_crtc,
+					       31u);
+
+			mst_possible_crtcs |= (1U << n) - 1U;
+		}
+		if (!mst_possible_crtcs) {
+			unsigned int n = dp->max_streams;
+
+			if (n < 1)
+				n = 1;
+			n = min_t(unsigned int, n, 31u);
+			mst_possible_crtcs = (1U << n) - 1U;
+		}
+
+		for (i = 0; i < dp->max_mst_encoders; i++) {
+			mst_encoder = &dp->mst.private_info.mst_encoders[i];
+			encoder = &mst_encoder->base;
+			mst_encoder->id = i;
+			mst_encoder->dp = dp;
+			mst_encoder->drm = dp->drm;
+			encoder->possible_crtcs = mst_possible_crtcs;
+
+			drm_encoder_init(mst_encoder->drm, encoder,
+					 &trilin_dp_mst_enc_funcs,
+					 DRM_MODE_ENCODER_DPMST, "DP-MST %c",
+					 pipe_name(i));
+			drm_encoder_helper_add(encoder,
+					       &trilin_dp_encoder_helper_funcs);
+			DP_DEBUG("create encoder%d success", i);
+		}
 	}
 
 	ret = drm_dp_mst_topology_mgr_init(&dp->mst.private_info.mst_mgr,
-					   dp->drm[0], &dp->aux, 16,
+					   dp->drm, &dp->aux, 16,
 					   dp->max_mst_encoders,
 					   conn_base_id);
 	if (ret) {

@@ -8,7 +8,6 @@
 #define _LINLONDP_FRAMEBUFFER_H_
 
 #include <drm/drm_framebuffer.h>
-#include <linux/version.h>
 #include "linlondp_format_caps.h"
 
 /**
@@ -38,15 +37,13 @@ struct linlondp_fb {
 
 struct drm_framebuffer *
 linlondp_fb_create(struct drm_device *dev, struct drm_file *file,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 17, 0)
-		   const struct drm_format_info *info,
-#endif
 		   const struct drm_mode_fb_cmd2 *mode_cmd);
 int linlondp_fb_check_src_coords(const struct linlondp_fb *kfb, u32 src_x,
 				 u32 src_y, u32 src_w, u32 src_h);
 dma_addr_t linlondp_fb_get_pixel_addr(struct linlondp_fb *kfb, int x, int y,
 				      int plane);
-bool linlondp_fb_is_layer_supported(struct linlondp_fb *kfb, u32 layer_type,
-				    u32 rot);
+struct linlondp_layer;
+bool linlondp_fb_is_layer_supported(struct linlondp_fb *kfb,
+				    struct linlondp_layer *layer, u32 rot);
 
 #endif
