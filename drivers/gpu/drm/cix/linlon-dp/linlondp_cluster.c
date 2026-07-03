@@ -46,7 +46,8 @@
 #include <drm/drm_atomic.h>
 #include <drm/drm_connector.h>
 #include <drm/drm_fb_helper.h>
-#include <drm/drm_fbdev_generic.h>
+#include <drm/clients/drm_client_setup.h>
+#include <drm/drm_fbdev_dma.h>
 #include <drm/drm_module.h>
 #include <drm/drm_modeset_helper.h>
 #include <drm/drm_probe_helper.h>
@@ -154,7 +155,7 @@ static int linlondp_cluster_bind(struct device *dev)
 	}
 
 	if (enable_fb)
-		drm_fbdev_generic_setup(&cl->kms->base, 32);
+		drm_client_setup(&cl->kms->base, NULL);
 
 	if (cl->mdevs[0]->enabled_by_gop)
 		pm_runtime_set_active(d0);
