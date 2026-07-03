@@ -957,7 +957,7 @@ static int acpi_thermal_probe(struct platform_device *pdev)
 #ifdef CONFIG_CIX_THERMAL
 	result = acpi_thermal_get_sustainable_power(tz);
 	if (result)
-		goto free_memory;
+		return result;
 #endif
 
 	result = acpi_thermal_register_thermal_zone(tz, trip_table,
