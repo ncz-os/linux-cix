@@ -143,9 +143,8 @@ static int cix_ddrlp_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int cix_ddrlp_remove(struct platform_device *pdev)
+static void cix_ddrlp_remove(struct platform_device *pdev)
 {
-	return 0;
 }
 
 #ifdef CONFIG_OF

@@ -5,13 +5,16 @@
  *
  */
 #include <linux/kernel.h>
+#include <linux/string.h>
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/mutex.h>
 #include <linux/errno.h>
 #include <linux/device.h>
 #include <linux/soc/cix/cix_suspend.h>
+#if IS_ENABLED(CONFIG_HISYSEVENT)
 #include <dfx/hiview_hisysevent.h>
+#endif
 
 static struct suspend_info suspend_warn;
 static spinlock_t suspend_warn_lock;
@@ -38,7 +41,7 @@ void suspend_warning_set(const char *name, suspend_warn_type_t type)
 	if (!suspend_warn.is_set) {
 		suspend_warn.type = type;
 		suspend_warn.is_set = true;
-		strncpy(suspend_warn.name, name, SUSPEND_MAX_MODULE_NAME_LEN - 1);
+		strscpy(suspend_warn.name, name, SUSPEND_MAX_MODULE_NAME_LEN);
 	} else {
 		pr_warn("Suspend warn already set: type=%d, new type=%d\n", suspend_warn.type, type);
 	}
@@ -64,14 +67,17 @@ EXPORT_SYMBOL_GPL(suspend_warning_clear);
 
 bool suspend_warning_check(void)
 {
+	bool was_set = false;
+#if IS_ENABLED(CONFIG_HISYSEVENT)
 	struct hiview_hisysevent *event = NULL;
 	int ret = 0;
-	bool was_set = false;
+#endif
 
 	spin_lock_irqsave(&suspend_warn_lock, suspend_warn_flags);
 	if (suspend_warn.is_set) {
 		was_set = true;
 
+#if IS_ENABLED(CONFIG_HISYSEVENT)
 		if(!IS_ERR_OR_NULL(suspend_warn.name)) {
 			event = hisysevent_create("KERNEL_VENDOR", "SUSPEND_ERROR", FAULT);
 			if (event == NULL) {
@@ -84,6 +90,7 @@ bool suspend_warning_check(void)
 				pr_err("report hievent failed: error_name = %s \n", suspend_warn.name);
 			hisysevent_destroy(&event);
 		}
+#endif
 
 	}
 	spin_unlock_irqrestore(&suspend_warn_lock, suspend_warn_flags);
