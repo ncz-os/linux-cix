@@ -234,9 +234,9 @@ cix_virtual_bind(struct device *comp, struct device *master,
 	}
 
 	/*  Set supported color formats */
-	connector->display_info.color_formats = DRM_COLOR_FORMAT_RGB444   |
-						DRM_COLOR_FORMAT_YCBCR422 |
-						DRM_COLOR_FORMAT_YCBCR420;
+	connector->display_info.color_formats = BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444)   |
+						BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR422) |
+						BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR420);
 
 	return 0;
 }
@@ -284,7 +284,7 @@ static int cix_virtual_probe(struct platform_device *pdev)
 	return component_add(dev, &cix_virtual_ops);
 }
 
-static int cix_virtual_remove(struct platform_device *pdev)
+static void cix_virtual_remove(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 
@@ -292,7 +292,6 @@ static int cix_virtual_remove(struct platform_device *pdev)
 
 	dev_set_drvdata(dev, NULL);
 
-	return 0;
 }
 
 struct platform_driver cix_virtual_driver = {
