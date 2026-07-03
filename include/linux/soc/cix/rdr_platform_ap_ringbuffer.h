@@ -21,7 +21,7 @@
 
 
 #include <linux/kernel.h>
-#include <linux/soc/cix/mntn_public_interface.h>
+#include <mntn_public_interface.h>
 
 #ifdef CONFIG_PLAT_BBOX
 int rdr_rbuf_init(struct rdr_ringbuffer *q, u32 bytes,
