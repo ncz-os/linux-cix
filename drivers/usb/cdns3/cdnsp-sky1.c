@@ -701,7 +701,7 @@ err:
 	return ret;
 }
 
-static int cdnsp_sky1_remove(struct platform_device *pdev)
+static void cdnsp_sky1_remove(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct cdnsp_sky1 *data = dev_get_drvdata(dev);
@@ -715,7 +715,6 @@ static int cdnsp_sky1_remove(struct platform_device *pdev)
 	sky1_usb_clk_disable_all(dev);
 	platform_set_drvdata(pdev, NULL);
 
-	return 0;
 }
 
 #ifdef CONFIG_PM
