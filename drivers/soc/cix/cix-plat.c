@@ -92,6 +92,7 @@ static int __init parse_gop(char *arg)
 }
 early_param("efifb_enable", parse_gop);
 
+#ifdef CONFIG_CIX_SMMU_ATTACH_NOTIFIER
 static void smmu_pcie_quirks(struct device *dev)
 {
 	struct arm_smmu_master *master;
@@ -161,6 +162,7 @@ static int smmu_attach_notify(struct notifier_block *nb, unsigned long val,
 static struct notifier_block smmu_attach_nb = {
 	.notifier_call = smmu_attach_notify,
 };
+#endif /* CONFIG_CIX_SMMU_ATTACH_NOTIFIER */
 
 void cix_pcie_io_space_init(void)
 {
@@ -179,7 +181,11 @@ int cix_pcie_quirks_init(void)
 		return -ENOMEM;
 	}
 
+#ifdef CONFIG_CIX_SMMU_ATTACH_NOTIFIER
 	return register_smmu_attach_notifier(&smmu_attach_nb);
+#else
+	return 0;
+#endif
 }
 
 #ifdef CIX_GOP_RESOURCE_QUIRK

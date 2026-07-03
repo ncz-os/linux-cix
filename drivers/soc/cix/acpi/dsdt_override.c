@@ -13,7 +13,7 @@
 #include <linux/efi.h>
 #include <linux/libfdt.h>
 #include <linux/of_fdt.h>
-#include <asm/unaligned.h>
+#include <linux/unaligned.h>
 
 #define AML_NAME_OP                 (u16) 0x08
 
