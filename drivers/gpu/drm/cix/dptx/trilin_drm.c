@@ -15,6 +15,7 @@
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/module.h>
+#include <linux/debugfs.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/phy/phy.h>
@@ -160,7 +161,7 @@ static void trilin_dp_sst_sync_source_id_from_crtc(struct trilin_dp *dp,
 }
 
 static int trilin_dp_connector_atomic_check(struct drm_connector *conn,
-					    struct drm_atomic_state *state)
+					    struct drm_atomic_commit *state)
 {
 	struct drm_connector_state *new_con_state =
 		drm_atomic_get_new_connector_state(state, conn);
@@ -407,7 +408,7 @@ trilin_dp_connector_best_encoder(struct drm_connector *connector)
 
 enum drm_mode_status
 trilin_dp_connector_mode_valid(struct drm_connector *connector,
-			       struct drm_display_mode *mode)
+			       const struct drm_display_mode *mode)
 {
 	struct trilin_dp *dp = connector_to_dp(connector);
 	//struct trilin_connector *conn = connector_to_trilin(connector);
@@ -585,7 +586,7 @@ static const struct drm_connector_helper_funcs
  */
 static
 struct drm_crtc *get_crtc_from_encoder(struct drm_encoder *encoder,
-					  struct drm_atomic_state *state)
+					  struct drm_atomic_commit *state)
 {
 	struct drm_connector *connector;
 	struct drm_connector_state *conn_state;
@@ -602,7 +603,7 @@ struct drm_crtc *get_crtc_from_encoder(struct drm_encoder *encoder,
 }
 
 static bool trilin_dp_handle_psr_disable(struct drm_encoder *encoder,
-				struct drm_atomic_state *state)
+				struct drm_atomic_commit *state)
 {
 	struct drm_crtc *crtc;
 	struct drm_crtc_state *old_crtc_state;
@@ -673,7 +674,7 @@ static bool is_same_mode_compare(struct trilin_dp *dp,
 }
 
 static void trilin_dp_encoder_enable(struct drm_encoder *encoder,
-				struct drm_atomic_state *state)
+				struct drm_atomic_commit *state)
 {
 	struct trilin_dp *dp = encoder_to_dp(encoder);
 	struct trilin_dp_panel *dp_panel = &dp->dp_panel;
@@ -726,7 +727,7 @@ static void trilin_dp_encoder_enable(struct drm_encoder *encoder,
 }
 
 static void trilin_dp_encoder_disable(struct drm_encoder *encoder,
-				struct drm_atomic_state *state)
+				struct drm_atomic_commit *state)
 {
 	int rc;
 	struct trilin_dp *dp = encoder_to_dp(encoder);

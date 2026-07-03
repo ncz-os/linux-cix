@@ -279,7 +279,7 @@ struct linlondp_kms_dev {
 	/** @crtcs: crtcs list */
 	struct linlondp_crtc crtcs[LINLONDP_MAX_KMS_CRTCS];
 	/* Snapshot taken at atomic_check when CRTC goes active->inactive (user blank). */
-	struct drm_atomic_state *pre_blank_state;
+	struct drm_atomic_commit *pre_blank_state;
 	struct mutex pre_blank_lock;
 };
 

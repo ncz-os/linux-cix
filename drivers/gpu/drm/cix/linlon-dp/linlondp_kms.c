@@ -9,6 +9,7 @@
 #include <linux/iommu.h>
 
 #include <drm/drm_atomic.h>
+#include <drm/drm_fbdev_dma.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_fb_helper.h>
@@ -278,18 +279,17 @@ static irqreturn_t linlondp_kms_irq_handler(int irq, void *data)
 
 static struct drm_driver linlondp_kms_driver = {
 	.driver_features = DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC,
-	.lastclose = drm_fb_helper_lastclose,
 	.dumb_create = linlondp_gem_dma_dumb_create,
+	DRM_FBDEV_DMA_DRIVER_OPS,
 	.gem_prime_import_sg_table = linlondp_gem_prime_import_sg_table,
 	.fops = &linlondp_cma_fops,
 	.name = "linlondp",
 	.desc = "Linlon Display Processor driver",
-	.date = "20230426",
 	.major = 0,
 	.minor = 0,
 };
 
-static void linlondp_kms_atomic_commit_hw_done(struct drm_atomic_state *state)
+static void linlondp_kms_atomic_commit_hw_done(struct drm_atomic_commit *state)
 {
 	struct drm_device *dev = state->dev;
 	struct linlondp_kms_dev *kms = to_kdev(dev);
@@ -316,7 +316,7 @@ static void linlondp_kms_atomic_commit_hw_done(struct drm_atomic_state *state)
 	drm_atomic_helper_commit_hw_done(state);
 }
 
-static void linlondp_kms_commit_tail(struct drm_atomic_state *old_state)
+static void linlondp_kms_commit_tail(struct drm_atomic_commit *old_state)
 {
 	struct drm_device *dev = old_state->dev;
 	bool fence_cookie = dma_fence_begin_signalling();
@@ -385,7 +385,7 @@ static int linlondp_plane_state_list_add(struct drm_plane_state *plane_st,
 static int linlondp_crtc_normalize_zpos(struct drm_crtc *crtc,
 					struct drm_crtc_state *crtc_st)
 {
-	struct drm_atomic_state *state = crtc_st->state;
+	struct drm_atomic_commit *state = crtc_st->state;
 	struct linlondp_crtc *kcrtc = to_kcrtc(crtc);
 	struct linlondp_crtc_state *kcrtc_st = to_kcrtc_st(crtc_st);
 	struct linlondp_plane_state *kplane_st;
@@ -474,18 +474,18 @@ static bool linlondp_vrr_match_mode(const struct drm_display_mode *mode1,
 static void linlondp_kms_put_pre_blank_locked(struct linlondp_kms_dev *kms)
 {
 	if (kms->pre_blank_state) {
-		drm_atomic_state_put(kms->pre_blank_state);
+		drm_atomic_commit_put(kms->pre_blank_state);
 		kms->pre_blank_state = NULL;
 	}
 }
 
 static void linlondp_kms_maybe_save_pre_blank_state(struct linlondp_kms_dev *kms,
-						    struct drm_atomic_state *state)
+						    struct drm_atomic_commit *state)
 {
 	struct drm_device *drm = &kms->base;
 	struct drm_crtc *crtc;
 	struct drm_crtc_state *old_st, *new_st;
-	struct drm_atomic_state *snap, *old_snap;
+	struct drm_atomic_commit *snap, *old_snap;
 	bool blanking = false;
 	int i;
 
@@ -508,7 +508,7 @@ static void linlondp_kms_maybe_save_pre_blank_state(struct linlondp_kms_dev *kms
 	mutex_unlock(&kms->pre_blank_lock);
 
 	if (old_snap)
-		drm_atomic_state_put(old_snap);
+		drm_atomic_commit_put(old_snap);
 
 	DRM_DEBUG_ATOMIC("linlondp: saved pre-blank state for STR\n");
 }
@@ -528,7 +528,7 @@ void linlondp_kms_clear_pre_blank_state(struct drm_device *drm)
 bool linlondp_kms_fixup_inactive_suspend_state(struct drm_device *drm)
 {
 	struct linlondp_kms_dev *kms = to_kdev(drm);
-	struct drm_atomic_state *fallback, *inactive;
+	struct drm_atomic_commit *fallback, *inactive;
 	struct drm_crtc *crtc;
 	struct drm_crtc_state *crtc_st;
 	bool has_active = false;
@@ -552,7 +552,7 @@ bool linlondp_kms_fixup_inactive_suspend_state(struct drm_device *drm)
 		}
 	}
 	if (!has_active) {
-		drm_atomic_state_put(fallback);
+		drm_atomic_commit_put(fallback);
 		return false;
 	}
 
@@ -562,13 +562,13 @@ bool linlondp_kms_fixup_inactive_suspend_state(struct drm_device *drm)
 	mutex_unlock(&drm->mode_config.mutex);
 
 	if (inactive)
-		drm_atomic_state_put(inactive);
+		drm_atomic_commit_put(inactive);
 
 	return true;
 }
 
 static int linlondp_kms_check(struct drm_device *dev,
-			      struct drm_atomic_state *state)
+			      struct drm_atomic_commit *state)
 {
 	struct linlondp_kms_dev *kms = to_kdev(dev);
 	struct drm_plane *plane;
