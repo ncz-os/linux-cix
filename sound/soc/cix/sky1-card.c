@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
 // Copyright 2024 Cix Technology Group Co., Ltd.
-
-#include <linux/acpi.h>
-#include <linux/module.h>
 #include "card-utils.h"
 
 static int cix_asoc_card_probe(struct platform_device *pdev)
@@ -25,37 +22,40 @@ static int cix_asoc_card_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, card);
 	snd_soc_card_set_drvdata(card, priv);
 
-	if (dev->of_node)
-		ret = cix_card_parse_of(priv);
-	else
+	if (ACPI_COMPANION(dev))
 		ret = cix_card_parse_acpi(priv);
+	else
+		ret = cix_card_parse_of(priv);
 	if (ret) {
 		if (ret != -EPROBE_DEFER)
-			dev_err(dev, "card parse failed (%d)\n", ret);
-		return ret;
+			dev_err(dev, "cix_card_parse_of failed (%d)\n", ret);
+		goto err;
 	}
 
 	ret = devm_snd_soc_register_card(dev, card);
 	if (ret) {
 		if (ret != -EPROBE_DEFER)
 			dev_err(dev, "snd_soc_register_card failed (%d)\n", ret);
-		return ret;
+		goto err;
 	}
 
 	return 0;
+err:
+	return ret;
 }
 
-static const struct of_device_id sky1_of_match[] = {
-	{ .compatible = "cix,sky1-sound-card", },
-	{ }
-};
-MODULE_DEVICE_TABLE(of, sky1_of_match);
-
 static const struct acpi_device_id sky1_acpi_match[] = {
-	{ "CIXH6070", 0 },
-	{ }
+	{ "CIXH6070", },
+	{ },
 };
 MODULE_DEVICE_TABLE(acpi, sky1_acpi_match);
+
+static const struct of_device_id sky1_of_match[] = {
+	{
+		.compatible = "cix,sky1-sound-card",
+	}, {}
+};
+MODULE_DEVICE_TABLE(of, sky1_of_match);
 
 static struct platform_driver sky1_card_pdrv = {
 	.driver = {

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 // Copyright 2024 Cix Technology Group Co., Ltd.
 
-
 #include <linux/acpi.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
@@ -499,7 +498,7 @@ static int cdns_i2s_mc_set_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 	return 0;
 }
 
-static int cdns_i2s_mc_startup(struct snd_pcm_substream *substream,
+static int cdns_i2s_mc_prepare(struct snd_pcm_substream *substream,
 			       struct snd_soc_dai *cpu_dai)
 {
 	struct cdns_i2s_mc_priv *i2s_mc_priv = snd_soc_dai_get_drvdata(cpu_dai);
@@ -644,9 +643,9 @@ static int cdns_i2s_mc_hw_params(struct snd_pcm_substream *substream,
 
 		pin_tx_num = hweight8(i2s_mc_priv->pin_tx_mask);
 		if (slots > 2 * pin_tx_num) {
-			dev_err(i2s_mc_priv->dev,
-				"Transmit channel number is large than hardware config\n");
-			return -EINVAL;
+			dev_warn(i2s_mc_priv->dev,
+				 "Transmit channel number is large than hardware config\n");
+			return -ENOTSUPP;
 		} else if (slots < 2 * pin_tx_num) {
 			cdns_i2s_mc_adjust_pin_config(i2s_mc_priv->pin_out_num,
 						      &i2s_mc_priv->pin_tx_mask_adjust, slots);
@@ -661,9 +660,9 @@ static int cdns_i2s_mc_hw_params(struct snd_pcm_substream *substream,
 
 		pin_rx_num = hweight8(i2s_mc_priv->pin_rx_mask);
 		if (slots > 2 * pin_rx_num) {
-			dev_err(i2s_mc_priv->dev,
-				"Receive channel number is large than hardware config\n");
-			return -EINVAL;
+			dev_warn(i2s_mc_priv->dev,
+				 "Receive channel number is large than hardware config\n");
+			return -ENOTSUPP;
 		} else if (slots < 2 * pin_rx_num) {
 			cdns_i2s_mc_adjust_pin_config(i2s_mc_priv->pin_out_num,
 						      &i2s_mc_priv->pin_rx_mask_adjust, slots);
@@ -741,8 +740,8 @@ static const struct snd_soc_dai_ops cdns_i2s_mc_dai_ops = {
 	.probe = cdns_i2s_mc_dai_probe,
 	.set_fmt = cdns_i2s_mc_set_fmt,
 
-	.startup = cdns_i2s_mc_startup,
 	.hw_params = cdns_i2s_mc_hw_params,
+	.prepare = cdns_i2s_mc_prepare,
 	.trigger = cdns_i2s_mc_trigger,
 };
 
@@ -855,6 +854,43 @@ static struct regmap_config cdns_i2s_mc_regmap_config = {
 	.volatile_reg = cdns_i2s_mc_volatile_reg,
 	.cache_type = REGCACHE_FLAT,
 };
+
+static struct snd_dmaengine_pcm_config *devm_snd_pcm_alloc_config(
+			struct device *dev)
+{
+	struct snd_dmaengine_pcm_config *config = NULL;
+	int cnt, ret;
+
+	if (!dev)
+		return NULL;
+
+	config = devm_kzalloc(dev, sizeof(*config), GFP_KERNEL);
+	if (!config)
+		return NULL;
+
+	cnt = device_property_string_array_count(dev, "dma-names");
+	if (cnt < 0)
+		goto ERROR;
+
+	if (cnt > SNDRV_PCM_STREAM_LAST + 1) /* enum start from 0 */
+		cnt = SNDRV_PCM_STREAM_LAST + 1;
+
+	ret = device_property_read_string_array(dev, "dma-names",
+						config->chan_names, cnt);
+	if (ret < 0)
+		goto ERROR;
+
+	config->prepare_slave_config = snd_dmaengine_pcm_prepare_slave_config;
+
+	return config;
+
+ERROR:
+	if (config)
+		kfree(config);
+	dev_err(dev, "snd pcm alloc config fail\n");
+
+	return NULL;
+}
 
 static int cdns_i2s_get_pin_config(struct platform_device *pdev,
 				   struct cdns_i2s_mc_priv *i2s_mc_priv)
@@ -1002,19 +1038,18 @@ static int cdns_i2s_mc_probe(struct platform_device *pdev)
 	i2s_mc_priv->capture_dma_data.addr_width = DMA_SLAVE_BUSWIDTH_UNDEFINED;
 	i2s_mc_priv->capture_dma_data.maxburst = 4;
 
-	/*
-	 * Under ACPI, snd_dmaengine_pcm_register() skips DMA channel
-	 * pre-allocation (it only pre-allocates for DT devices).  Provide
-	 * explicit channel names so dmaengine_pcm_new() can request them
-	 * at PCM creation time via acpi_dma_request_slave_chan_by_name().
-	 */
-	static const struct snd_dmaengine_pcm_config pcm_config = {
-		.prepare_slave_config = snd_dmaengine_pcm_prepare_slave_config,
-		.chan_names = { [SNDRV_PCM_STREAM_PLAYBACK] = "tx",
-			        [SNDRV_PCM_STREAM_CAPTURE]  = "rx" },
-	};
-
-	ret = devm_snd_dmaengine_pcm_register(&pdev->dev, &pcm_config, 0);
+	if (ACPI_COMPANION(&pdev->dev))
+		/*
+		 * For now dmaengine_pcm_request_chan_of() was called in
+		 * function devm_snd_dmaengine_pcm_register(), which didn't
+		 * work in acpi intialize if you want request the dma channel.
+		 * So that snd dma config should be specified, and dma channel
+		 * will be requested in snd pcm creation process.
+		 */
+		ret = devm_snd_dmaengine_pcm_register(&pdev->dev,
+				devm_snd_pcm_alloc_config(&pdev->dev), 0);
+	else
+		ret = devm_snd_dmaengine_pcm_register(&pdev->dev, NULL, 0);
 	if (ret) {
 		if (ret != -EPROBE_DEFER)
 			dev_err(&pdev->dev, "Failed to register dmaengine component:%d\n", ret);
@@ -1051,11 +1086,13 @@ static int cdns_i2s_mc_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static void cdns_i2s_mc_remove(struct platform_device *pdev)
+static int cdns_i2s_mc_remove(struct platform_device *pdev)
 {
 	if (!pm_runtime_status_suspended(&pdev->dev))
 		pm_runtime_force_suspend(&pdev->dev);
 	pm_runtime_disable(&pdev->dev);
+
+	return 0;
 }
 
 static int __maybe_unused cdns_i2s_mc_runtime_suspend(struct device *dev)
@@ -1144,7 +1181,7 @@ static const struct of_device_id cdns_i2s_mc_of_match[] = {
 MODULE_DEVICE_TABLE(of, cdns_i2s_mc_of_match);
 
 static const struct acpi_device_id cdns_i2s_mc_acpi_match[] = {
-	{ "CIXH6011", (kernel_ulong_t)&sky1_devtype_data },
+	{ "CIXH6011", .driver_data = (kernel_ulong_t)&sky1_devtype_data },
 	{ },
 };
 MODULE_DEVICE_TABLE(acpi, cdns_i2s_mc_acpi_match);

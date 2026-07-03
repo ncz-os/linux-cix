@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause) */
+// SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause)
 /*
  * Copyright 2024 Cix Technology Group Co., Ltd.
  */
@@ -10,10 +10,6 @@
 
 #define EXCEPT_MAX_HDR_SIZE		0x400
 #define CIX_STACK_DUMP_SIZE		32
-
-struct snd_sof_dev;
-struct sof_ipc_dsp_oops_xtensa;
-struct sof_ipc_panic_info;
 
 void cix_get_registers(struct snd_sof_dev *sdev,
 		       struct sof_ipc_dsp_oops_xtensa *xoops,
