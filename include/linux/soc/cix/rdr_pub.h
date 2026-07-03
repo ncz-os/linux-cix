@@ -21,7 +21,7 @@
 
 #include <linux/module.h>
 #include <linux/soc/cix/rdr_types.h>
-#include <linux/soc/cix/mntn_public_interface.h>
+#include <mntn_public_interface.h>
 #include <linux/soc/cix/util.h>
 
 #define STR_MODULENAME_MAXLEN 16

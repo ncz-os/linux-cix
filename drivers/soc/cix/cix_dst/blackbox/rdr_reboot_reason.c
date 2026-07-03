@@ -2,8 +2,8 @@
 // Copyright 2025 Cix Technology Group Co., Ltd.
 
 #include <linux/soc/cix/dst_reboot_reason.h>
-#include <linux/soc/cix/mntn_public_interface.h>
-#include <linux/soc/cix/mntn_subtype_exception.h>
+#include <mntn_public_interface.h>
+#include <mntn_subtype_exception.h>
 #include "rdr_inner.h"
 #include "rdr_print.h"
 
@@ -42,7 +42,7 @@ char *rdr_get_exception_type_name(u32 exce_type)
 uint32_t rdr_get_exception_type(char *name)
 {
 	for (int i = 0; (unsigned int)i < ARRAY_SIZE(rb_map); i++) {
-		if (!strncmp(rb_map[i].word, name, strlen(rb_map[i].word)))
+		if (!strncasecmp(rb_map[i].word, name, strlen(rb_map[i].word)))
 			return rb_map[i].type;
 	}
 
