@@ -10,7 +10,7 @@
 #include <linux/memblock.h>
 #include <linux/soc/cix/rdr_pub.h>
 #include <linux/soc/cix/rdr_platform.h>
-#include <linux/soc/cix/mntn_subtype_exception.h>
+#include <mntn_subtype_exception.h>
 #include "dst_print.h"
 #include <linux/soc/cix/cix_ap2se_ipc.h>
 
