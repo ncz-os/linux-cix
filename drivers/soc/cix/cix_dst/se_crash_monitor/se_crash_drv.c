@@ -290,14 +290,13 @@ free_ch:
 	return ret;
 }
 
-static int se_crash_remove(struct platform_device *pdev)
+static void se_crash_remove(struct platform_device *pdev)
 {
 	struct se_crash_dev *sdev = platform_get_drvdata(pdev);
 
 	rdr_se_unregister_exception();
 	rdr_se_unregister_core(sdev);
 
-	return 0;
 }
 
 static struct platform_driver sp_crash_driver = {

@@ -24,7 +24,7 @@ static int cix_jack_init(struct snd_soc_pcm_runtime *rtd)
 	struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(rtd, 0);
 	struct cix_asoc_card *priv = snd_soc_card_get_drvdata(rtd->card);
 	struct dai_link_info *link_info =
-		(struct dai_link_info *)((priv->link_info + rtd->num));
+		(struct dai_link_info *)((priv->link_info + rtd->id));
 	struct device *dev = rtd->card->dev;
 	int ret, jack[JACK_CNT], cnt, i;
 
@@ -73,18 +73,19 @@ static int cix_dailink_parsing_fmt(struct device_node *np,
 	struct device_node *framemaster = NULL;
 	unsigned int dai_fmt;
 
-	dai_fmt = snd_soc_of_parse_daifmt(np, NULL,
-				&bitclkmaster, &framemaster);
+	dai_fmt = snd_soc_daifmt_parse_format(np, NULL);
+	snd_soc_daifmt_parse_clock_provider_as_phandle(np, NULL, &bitclkmaster,
+						       &framemaster);
 	if (bitclkmaster != framemaster) {
 		pr_info("Must be the same bitclock and frame master\n");
 		return -EINVAL;
 	}
 	if (bitclkmaster) {
-		dai_fmt &= ~SND_SOC_DAIFMT_MASTER_MASK;
+		dai_fmt &= ~SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK;
 		if (codec_np == bitclkmaster)
-			dai_fmt |= SND_SOC_DAIFMT_CBM_CFM;
+			dai_fmt |= SND_SOC_DAIFMT_CBP_CFP;
 		else
-			dai_fmt |= SND_SOC_DAIFMT_CBS_CFS;
+			dai_fmt |= SND_SOC_DAIFMT_CBC_CFC;
 	}
 	of_node_put(bitclkmaster);
 	of_node_put(framemaster);
@@ -118,7 +119,7 @@ static int dai_set_sysclk(struct snd_pcm_substream *substream,
 	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
 	struct cix_asoc_card *priv = snd_soc_card_get_drvdata(rtd->card);
 	struct dai_link_info *link_info =
-		(struct dai_link_info *)((priv->link_info + rtd->num));
+		(struct dai_link_info *)((priv->link_info + rtd->id));
 	struct snd_soc_dai *codec_dai;
 	unsigned int mclk, mclk_div, mclk_parent_rate, sample_rate;
 	struct clk *mclk_parent;
@@ -218,7 +219,7 @@ static int dai_startup(struct snd_pcm_substream *substream)
 	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
 	struct cix_asoc_card *priv = snd_soc_card_get_drvdata(rtd->card);
 	struct dai_link_info *link_info =
-		(struct dai_link_info *)((priv->link_info + rtd->num));
+		(struct dai_link_info *)((priv->link_info + rtd->id));
 	int ret;
 
 	if (link_info->mclk_fs) {
@@ -239,7 +240,7 @@ static void dai_shutdown(struct snd_pcm_substream *substream)
 	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
 	struct cix_asoc_card *priv = snd_soc_card_get_drvdata(rtd->card);
 	struct dai_link_info *link_info =
-		(struct dai_link_info *)((priv->link_info + rtd->num));
+		(struct dai_link_info *)((priv->link_info + rtd->id));
 
 	if (link_info->mclk_fs) {
 		link_info->mclk_enabled = false;
@@ -254,7 +255,7 @@ static int dai_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
 	struct cix_asoc_card *priv = snd_soc_card_get_drvdata(rtd->card);
 	struct dai_link_info *link_info =
-		(struct dai_link_info *)((priv->link_info + rtd->num));
+		(struct dai_link_info *)((priv->link_info + rtd->id));
 
 	if (link_info->mclk_fs)
 		return dai_set_sysclk(substream, params, link_info->mclk_fs);
@@ -274,9 +275,9 @@ static int cix_dailink_init(struct snd_soc_pcm_runtime *rtd)
 	struct device *dev = rtd->card->dev;
 	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
 	struct dai_link_info *link_info =
-		(struct dai_link_info *)((priv->link_info + rtd->num));
+		(struct dai_link_info *)((priv->link_info + rtd->id));
 	struct snd_soc_dai_link *dai_link =
-		(struct snd_soc_dai_link *)((priv)->card->dai_link + rtd->num);
+		(struct snd_soc_dai_link *)((priv)->card->dai_link + rtd->id);
 	int ret, fmt;
 
 	dev_dbg(dev, "%s, dai_fmt:0x%x\n", __func__, dai_link->dai_fmt);
@@ -347,7 +348,7 @@ static int cix_card_suspend_post(struct snd_soc_card *card)
 	struct dai_link_info *link_info;
 
 	for_each_card_rtds(card, rtd) {
-		link_info = (struct dai_link_info *)((priv->link_info + rtd->num));
+		link_info = (struct dai_link_info *)((priv->link_info + rtd->id));
 
 		if (link_info->mclk_enabled)
 			clk_disable_unprepare(link_info->clk_mclk);
@@ -364,7 +365,7 @@ static int cix_card_resume_pre(struct snd_soc_card *card)
 	int ret;
 
 	for_each_card_rtds(card, rtd) {
-		link_info = (struct dai_link_info *)((priv->link_info + rtd->num));
+		link_info = (struct dai_link_info *)((priv->link_info + rtd->id));
 
 		if (link_info->mclk_enabled) {
 			ret = clk_prepare_enable(link_info->clk_mclk);
@@ -665,8 +666,6 @@ static struct snd_soc_dai_link sky1_dailink[] = {
 				| SND_SOC_DAIFMT_GATED
 				| SND_SOC_DAIFMT_CBC_CFC,
 		.init = &cix_dailink_init,
-		.dpcm_playback = 1,
-		.dpcm_capture = 1,
 		.ops = &cix_dailink_ops,
 		SND_SOC_DAILINK_REG(cix_i2s0_sc_alc5682),
 	},
@@ -678,7 +677,6 @@ static struct snd_soc_dai_link sky1_dailink[] = {
 				| SND_SOC_DAIFMT_GATED
 				| SND_SOC_DAIFMT_CBC_CFC,
 		.init = &cix_dailink_init,
-		.dpcm_playback = 1,
 		.ops = &cix_dailink_ops,
 		SND_SOC_DAILINK_REG(cix_i2s3_mc_alc1019),
 	},
@@ -690,7 +688,6 @@ static struct snd_soc_dai_link sky1_dailink[] = {
 				| SND_SOC_DAIFMT_GATED
 				| SND_SOC_DAIFMT_CBC_CFC,
 		.init = &cix_dailink_init,
-		.dpcm_playback = 1,
 		.ops = &cix_dailink_ops,
 		SND_SOC_DAILINK_REG(cix_i2s5_dp0),
 	},
@@ -702,7 +699,6 @@ static struct snd_soc_dai_link sky1_dailink[] = {
 				| SND_SOC_DAIFMT_GATED
 				| SND_SOC_DAIFMT_CBC_CFC,
 		.init = &cix_dailink_init,
-		.dpcm_playback = 1,
 		.ops = &cix_dailink_ops,
 		SND_SOC_DAILINK_REG(cix_i2s6_dp1),
 	},
@@ -714,7 +710,6 @@ static struct snd_soc_dai_link sky1_dailink[] = {
 				| SND_SOC_DAIFMT_GATED
 				| SND_SOC_DAIFMT_CBC_CFC,
 		.init = &cix_dailink_init,
-		.dpcm_playback = 1,
 		.ops = &cix_dailink_ops,
 		SND_SOC_DAILINK_REG(cix_i2s7_dp2),
 	},
@@ -726,7 +721,6 @@ static struct snd_soc_dai_link sky1_dailink[] = {
 				| SND_SOC_DAIFMT_GATED
 				| SND_SOC_DAIFMT_CBC_CFC,
 		.init = &cix_dailink_init,
-		.dpcm_playback = 1,
 		.ops = &cix_dailink_ops,
 		SND_SOC_DAILINK_REG(cix_i2s8_dp3),
 	},
@@ -738,7 +732,6 @@ static struct snd_soc_dai_link sky1_dailink[] = {
 				| SND_SOC_DAIFMT_GATED
 				| SND_SOC_DAIFMT_CBC_CFC,
 		.init = &cix_dailink_init,
-		.dpcm_playback = 1,
 		.ops = &cix_dailink_ops,
 		SND_SOC_DAILINK_REG(cix_i2s9_dp4),
 	},
