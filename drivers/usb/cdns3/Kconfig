@@ -97,6 +97,23 @@ config USB_CDNS3_IMX
 
 	  For example, imx8qm and imx8qxp.
 
+config USB_CDNSP
+	tristate "Cadence USBSSP platform driver (SoC/ACPI integrated)"
+	depends on USB_CDNS3
+	help
+	  Say Y or M here if your system has a Cadence USBSSP dual-role
+	  controller on a platform bus (SoC-integrated, matched via DT
+	  "cdns,usbssp" or ACPI CIXH2031).
+
+config USB_CDNSP_SKY1
+	tristate "Cadence USBSSP support on CIX Sky1 SoC platforms"
+	depends on ARCH_CIX || COMPILE_TEST
+	depends on USB_CDNS3
+	default USB_CDNSP
+	help
+	  Say Y or M here if you are building for CIX Sky1 SoC platforms
+	  that contain the Cadence USBSSP controller core (e.g. Orion O6).
+
 config USB_CDNS3_STARFIVE
 	tristate "Cadence USB3 support on StarFive SoC platforms"
 	depends on ARCH_STARFIVE || COMPILE_TEST
