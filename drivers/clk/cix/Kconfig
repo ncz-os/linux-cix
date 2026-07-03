@@ -1,22 +1,34 @@
-# SPDX-License-Identifier: GPL-2.0-only
+# SPDX-License-Identifier: GPL-2.0
+# Common clock support for Cixtech SoC family
+menu "Clock support for Cixtech"
 
-config CLK_SKY1_ACPI
-	tristate "CIX Sky1 ACPI clock lookup table support"
-	depends on ACPI && COMMON_CLK_SCMI
-	depends on ARM64
-	default ARCH_CIX
+comment "Clock options for Cixtech CPUs:"
+
+config COMMON_CLK_CIX
+	tristate "Support for Cix's clock controllers"
+	depends on ARCH_CIX || COMPILE_TEST
+	select REGMAP_MMIO
+	select RESET_CONTROLLER
+
+config CIX_CLK_DEBUG
+	tristate "Cix SoC Clock Debug Driver"
+	depends on COMMON_CLK_CIX
 	help
-	  Parses CLKT tables in the CIX Sky1 DSDT to connect ACPI
-	  consumer devices with SCMI-provided clocks. Required for
-	  ACPI boot on Sky1 SoCs.
+	  Support on-line debug soc clocks from the debugfs interface.
 
 config CLK_SKY1_AUDSS
-	bool "CIX Sky1 Audio Subsystem Clock Controller"
-	depends on ARCH_CIX || COMPILE_TEST
-	depends on MFD_SYSCON
-	depends on COMMON_CLK
-	default ARCH_CIX
+	tristate "Cixtech Sky1 Audio Subsystem Clock Driver"
+	depends on COMMON_CLK_CIX || COMPILE_TEST
 	help
-	  This enables the audio subsystem clock controller for CIX Sky1
-	  SoCs. This is required for the audio subsystem including I2S
-	  controllers and DSP.
+	    Support for the Audio Subsystem clock controller present on
+	    Cixtech Sky1 SoC. Choose M or Y here if you want to build this
+	    driver.
+
+config CIX_ACPI_CLK
+        bool "CIX Clock Management API for acpi"
+        depends on ARCH_CIX && ACPI
+        help
+          This provid the clock management API for CIX Technologies,Inc.
+          Say Y if you want to supprot clock driver.
+
+endmenu
