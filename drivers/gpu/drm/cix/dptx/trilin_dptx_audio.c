@@ -133,7 +133,7 @@ static int dptx_audio_hw_params(struct device *dev, void *data,
 }
 
 static int dptx_audio_get_dai_id(struct snd_soc_component *comment,
-				 struct device_node *endpoint)
+				 struct device_node *endpoint, void *data)
 {
 	return 0;
 }
