@@ -3,8 +3,6 @@
  * phy driver for cdn_usb2_p_sd10000
  */
 #include <linux/acpi.h>
-#include <linux/module.h>
-#include <linux/platform_device.h>
 #include <linux/reset.h>
 #include <linux/kernel.h>
 #include <linux/of_platform.h>
