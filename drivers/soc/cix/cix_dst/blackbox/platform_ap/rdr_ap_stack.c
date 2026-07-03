@@ -5,14 +5,13 @@
  * Copyright (C) 2025 CIX Ltd.
  */
 #include <linux/cacheflush.h>
-#include <linux/vmalloc.h>
 #include <linux/arm_sdei.h>
 #include <linux/stddef.h>
 #include <asm/stacktrace.h>
 #include <sched/sched.h>
 #include <rcu/rcu.h>
 #include <linux/kallsyms.h>
-#include <linux/soc/cix/mntn_subtype_exception.h>
+#include <mntn_subtype_exception.h>
 #include "include/rdr_ap_adapter.h"
 #include "../rdr_print.h"
 #include "../rdr_inner.h"
