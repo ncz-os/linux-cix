@@ -234,9 +234,8 @@ error:
 	return -1;
 }
 
-static int rdr_exceptiontrace_remove(struct platform_device *pdev)
+static void rdr_exceptiontrace_remove(struct platform_device *pdev)
 {
-	return 0;
 }
 
 static struct platform_driver rdr_et_driver = {

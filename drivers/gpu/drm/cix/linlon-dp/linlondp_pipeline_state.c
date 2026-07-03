@@ -880,7 +880,7 @@ static int linlondp_improc_validate(struct linlondp_improc *improc,
 			st->color_format = kcrtc_st->output_format;
 		}
 
-		if ((st->color_format == DRM_COLOR_FORMAT_YCBCR420) &&
+		if ((st->color_format == BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR420)) &&
 		    (improc->base.pipeline->pixel_per_cycle != 1)) {
 			DRM_DEBUG_ATOMIC(
 				"420 with non-1ppc out is not supported\n");
