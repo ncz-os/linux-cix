@@ -328,7 +328,7 @@ ssize_t cix_dp_hdr_metadata_infoframe_sdp_pack(
 	 */
 	sdp->sdp_header.HB1 = drm_infoframe->type;
 	/*
-	 * Least Significant Eight Bits of (Data Byte Count ��� 1)
+	 * Least Significant Eight Bits of (Data Byte Count – 1)
 	 * infoframe_size - 1
 	 */
 	sdp->sdp_header.HB2 = 0x1D;
