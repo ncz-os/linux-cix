@@ -7,7 +7,7 @@
 #ifndef __BOOT_STAGE_POINT_H__
 #define __BOOT_STAGE_POINT_H__
 
-#include <linux/soc/cix/mntn_public_interface.h>
+#include <mntn_public_interface.h>
 #include <linux/types.h>
 
 void set_bootup_postcode(u32 value);
