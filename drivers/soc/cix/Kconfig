@@ -1,30 +1,54 @@
 # SPDX-License-Identifier: GPL-2.0-only
+menu "Cix Dst drivers"
 
-config CIX_ACPI_RESOURCE_LOOKUP
-	bool "CIX ACPI resource lookup driver"
-	depends on ARCH_CIX || COMPILE_TEST
-	depends on ACPI
-	depends on RESET_CONTROLLER
-	default ARCH_CIX
+config SOC_CIX
+	bool "Cix Sky SoC family support"
+	default n
 	help
-	  Processes custom CIX DSDT tables (RSTL, RSNL, DLKL) to register
-	  reset control lookups, assign names to platform resources, and
-	  create device link dependencies. This bridges CIX's ACPI firmware
-	  with the Linux kernel's standard resource lookup mechanisms.
+	  If you say yes here you get support for the Cix sky family
+	  support, it will provide the SoC info like SoC family,
+	  ID and revision etc.
 
-	  Required for CIX Sky1 ACPI boot with drivers that use
-	  platform_get_resource_byname() or devm_reset_control_get().
-
-config CIX_ACPI_USB_SCAN
-	bool "CIX ACPI USB scan handler"
-	depends on ARCH_CIX || COMPILE_TEST
-	depends on ACPI
-	default ARCH_CIX
+config CIX_CPU_INSTPIPE_FRESH
+	bool "fresh instpipe in sched_clock"
+	depends on ARCH_CIX
 	help
-	  Block PNP0D10 (generic xHCI) platform device creation on CIX Sky1
-	  so the vendor USB driver chain (cdnsp-sky1 + cdnsp-plat) can own
-	  the hardware instead of xhci-plat.
+	  Say yes will fresh instpipe in sched_clock.
 
-	  Required for proper USB controller initialization under ACPI boot.
+config CIX_SKY1_SOCINFO
+	bool "Cix Sky1 SoC Information driver"
+	depends on ARCH_CIX
+	select SOC_BUS
+	help
+	  Say yes to support decoding of CIX Sky1 SoC family information
+	  about the type and version.
 
+config CIX_SE_CONFIG
+	bool "Cix Sky1 AP config SE interface"
+	depends on ARCH_CIX
+	help
+	  Say yes to support AP config SE settings by AP2SE mailbox
+
+config CIX_SOC_ACPI
+	bool "Cix SoC ACPI drivers"
+	depends on ARCH_CIX && ACPI
+	select SOC_BUS
+	help
+	  Say yes to support CIX SoC ACPI drivers.
+
+config CIX_AP2SE_IPC
+	bool "Cix AP2SE IPC drivers"
+	depends on ARCH_CIX
+	select CIX_MBOX
+	help
+	  Say yes to support Cix SE2AP IPC drivers.
+
+if SOC_CIX
 source "drivers/soc/cix/cix_dst/Kconfig"
+endif #SOC_CIX
+
+menu "Cix Performance"
+source "drivers/soc/cix/sched/Kconfig"
+endmenu # Cix Performance
+
+endmenu
