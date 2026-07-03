@@ -15,8 +15,6 @@
 #include <linux/of_platform.h>
 
 #define MAX_LANES 8
-#define X8 8
-#define X4 4
 
 enum {
 	LINK_INVALID = 0,
@@ -320,20 +318,24 @@ struct cix_pcie_phy {
 
 static int pcie_phy_regmap_write(void *context, unsigned int reg, unsigned int val)
 {
+#if (!IS_ENABLED(CONFIG_ARCH_CIX_EMU_FPGA))
 	struct cix_pcie_phy *pcie_phy = context;
 	u32 offset = reg << 2;
 
 	writel(val, pcie_phy->base + offset);
+#endif
 
 	return 0;
 }
 
 static int pcie_phy_regmap_read(void *context, unsigned int reg, unsigned int *val)
 {
+#if (!IS_ENABLED(CONFIG_ARCH_CIX_EMU_FPGA))
 	struct cix_pcie_phy *pcie_phy = context;
 	u32 offset = reg << 2;
 
 	*val = readl(pcie_phy->base + offset);
+#endif
 
 	return 0;
 }
@@ -349,25 +351,41 @@ static const struct regmap_config cix_udphy_regmap_cfg = {
 
 static int pcie_phy_common_init(struct cix_pcie_phy *pcie_phy)
 {
-	int ret;
+	int ret = -1;
 
-	if (pcie_phy->num_lanes == X8) {
-		ret = regmap_multi_reg_write(pcie_phy->phy_regmap, pcie_x8, ARRAY_SIZE(pcie_x8));
-	} else if (pcie_phy->num_lanes == X4 && (pcie_phy->nsubnodes == 1)) {
-		ret = regmap_multi_reg_write(pcie_phy->phy_regmap, pcie_x4, ARRAY_SIZE(pcie_x4));
-	} else if (pcie_phy->num_lanes == X4) {
-		ret = regmap_multi_reg_write(pcie_phy->phy_regmap, pcie_x211, ARRAY_SIZE(pcie_x211));
-	} else {
-		dev_err(pcie_phy->dev, "Invalid Phy Config\n");
+	switch (pcie_phy->num_lanes) {
+	case 8:
+		ret = regmap_multi_reg_write(pcie_phy->phy_regmap, pcie_x8,
+					     ARRAY_SIZE(pcie_x8));
+		break;
+	case 4:
+		if (pcie_phy->nsubnodes == 1)
+			ret = regmap_multi_reg_write(pcie_phy->phy_regmap,
+						     pcie_x4,
+						     ARRAY_SIZE(pcie_x4));
+		else if (pcie_phy->nsubnodes == 3)
+			ret = regmap_multi_reg_write(pcie_phy->phy_regmap,
+						     pcie_x211,
+						     ARRAY_SIZE(pcie_x211));
+		break;
+	case 3:
+	case 2:
+	case 1:
+		ret = regmap_multi_reg_write(pcie_phy->phy_regmap, pcie_x211,
+					     ARRAY_SIZE(pcie_x211));
+		break;
+	default:
+		dev_err(pcie_phy->dev, "Invalid Phy lane number\n");
+		return -EINVAL;
 	}
-
 	if (ret) {
 		dev_err(pcie_phy->dev, "Failed to write the reg sequence\n");
-	} else {
-		pcie_phy->already_configured = 1;
+		return ret;
 	}
 
-	dev_info(pcie_phy->dev, "%s end \n", __func__);
+	pcie_phy->already_configured = 1;
+	dev_info(pcie_phy->dev, "Phy Configured success!\n");
+
 	return ret;
 }
 
@@ -583,16 +601,10 @@ static int cix_pcie_phy_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	/*
-	 * Only register the OF PHY provider when booting with Device Tree.
-	 * Under ACPI, phy_create_lookup() (called per-child above) is
-	 * sufficient for consumers to find PHYs via phy_get().
-	 */
-	if (dev->of_node) {
-		phy_provider = devm_of_phy_provider_register(dev,
-							     of_phy_simple_xlate);
-		if (IS_ERR(phy_provider))
-			return PTR_ERR(phy_provider);
+	phy_provider = devm_of_phy_provider_register(dev, of_phy_simple_xlate);
+	if (IS_ERR(phy_provider)) {
+		ret = PTR_ERR(phy_provider);
+		return ret;
 	}
 
 	return 0;
