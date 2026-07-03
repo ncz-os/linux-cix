@@ -5,6 +5,7 @@
  * Author: Zichar Zhang <zichar.zhang@cixtech.com>
  */
 
+#include <linux/memblock.h>
 #include <linux/acpi.h>
 #include <linux/cma.h>
 #include <linux/device.h>
@@ -23,8 +24,6 @@ struct reserved_mem_entry {
 	int type;
 };
 
-extern void __init fdt_reserved_mem_save_node(unsigned long node,
-			const char *uname, phys_addr_t base, phys_addr_t size);
 
 static struct reserved_mem_entry reserved_mem[] = {
 	{"audio", 0xd0000000, 0x00e00000, RESERVED_MEM_NOMAP},
@@ -52,7 +51,6 @@ static acpi_status __init reserved_mem_handler(u32 event,
 		else if (rmem->type == RESERVED_MEM_RESERVE)
 			memblock_reserve(rmem->base, rmem->size);
 
-		fdt_reserved_mem_save_node(0, rmem->name, rmem->base, rmem->size);
 	}
 
 	return acpi_remove_table_handler(reserved_mem_handler);
