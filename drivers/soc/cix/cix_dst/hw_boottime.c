@@ -21,7 +21,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/io.h>
-#include <linux/soc/cix/mntn_public_interface.h>
+#include <mntn_public_interface.h>
 #include "dst_print.h"
 
 #define BOOT_LOG_NUM 64
