@@ -758,20 +758,24 @@ static const struct cix_udphy_cfg sky1_udphy_cfg = {
 
 static int udphy_regmap_write(void *context, unsigned int reg, unsigned int val)
 {
+#if (!IS_ENABLED(CONFIG_ARCH_CIX_EMU_FPGA))
 	struct cix_udphy *udphy = context;
 	u32 offset = reg << 2;
 
 	writel(val, udphy->base + offset);
+#endif
 
 	return 0;
 }
 
 static int udphy_regmap_read(void *context, unsigned int reg, unsigned int *val)
 {
+#if (!IS_ENABLED(CONFIG_ARCH_CIX_EMU_FPGA))
 	struct cix_udphy *udphy = context;
 	u32 offset = reg << 2;
 
 	*val = readl(udphy->base + offset);
+#endif
 
 	return 0;
 }
@@ -1420,7 +1424,7 @@ static int cix_udphy_probe(struct platform_device *pdev)
 	struct fwnode_handle *child_fn;
 	int id, ret = 0;
 	struct gop_status __iomem *g_status;
-	enum phy_role gop_value = USB_ROLE_NONE;
+	enum phy_role gop_value;
 
 	udphy = devm_kzalloc(dev, sizeof(*udphy), GFP_KERNEL);
 	if (!udphy)
@@ -1454,56 +1458,35 @@ static int cix_udphy_probe(struct platform_device *pdev)
 	if (!device_property_read_u8(dev, "default_conf", &udphy->next_mode))
 		dev_info(dev, "phy init default mode %02x\n", udphy->next_mode);
 
-	/*
-	 * Determine whether to reset the PHY during probe.
-	 *
-	 * Under ACPI, firmware has already configured all PHYs and the
-	 * xHCI controllers are active via PNP0D10 platform devices.
-	 * Resetting PHYs would kill active USB connections.  Skip the
-	 * GOP status check entirely — it reflects UEFI-time state that
-	 * is stale by the time Linux drivers probe.
-	 *
-	 * Under DT, the GOP status tells us which PHYs are in use by
-	 * the UEFI graphics output (dp+usb3 hub should not be reset,
-	 * dp-only should not be reset).
+	/* It is only for GOP, dp+usb3.0 hub should not reset the phy and skip the
+	 * initialization from usb and dp driver, dp only device should not reset the phy.
 	 */
 	udphy->phy_reset = true;
 	udphy->phy_init_skip_count = 0;
 
-	if (ACPI_COMPANION(dev)) {
-		/*
-		 * Under ACPI, firmware initializes PHYs for UEFI USB and
-		 * display.  However, cdnsp-sky1 drd_init() resets the USB
-		 * controller hardware, so we must reinitialize the PHY to
-		 * match.  Treat ACPI the same as the DT ROLE_NONE case:
-		 * full reset + init when the consumer calls phy_set_mode().
-		 */
-		udphy->phy_reset = true;
-		udphy->phy_init_skip_count = 0;
-	} else {
-		g_status = ioremap(GOP_STATUS_ADDRESS, GOP_STATUS_SIZE);
-		if (g_status) {
-			gop_value = readb(&g_status->phy_status[id]);
-			switch (gop_value) {
-			case USB_ROLE_HOST:
-				udphy->phy_reset = false;
-				udphy->phy_init_skip_count = 2;
-				break;
-			case USB_ROLE_HOST_20:
-				udphy->phy_reset = false;
-				udphy->phy_init_skip_count = 0;
-				break;
-			case USB_ROLE_NONE:
-			case USB_ROLE_DEVICE:
-			default:
-				udphy->phy_reset = true;
-				udphy->phy_init_skip_count = 0;
-				break;
-			}
-			iounmap(g_status);
+	g_status = ioremap(GOP_STATUS_ADDRESS, GOP_STATUS_SIZE);
+	if (g_status) {
+		gop_value = readb(&g_status->phy_status[id]);
+		switch(gop_value){
+		case USB_ROLE_HOST:
+			udphy->phy_reset = false;
+			udphy->phy_init_skip_count = 2;
+			break;
+		case USB_ROLE_HOST_20:
+			udphy->phy_reset = false;
+			udphy->phy_init_skip_count = 0;
+			break;
+		case USB_ROLE_NONE:
+		case USB_ROLE_DEVICE:
+		default:
+			udphy->phy_reset = true;
+			udphy->phy_init_skip_count = 0;
+			break;
 		}
-		dev_info(dev, "get phy-status:[%d]%d\n", id, gop_value);
+		iounmap(g_status);
 	}
+
+	dev_info(dev, "get phy-status:[%d]%d\n", id, gop_value);
 	if (udphy->phy_reset) {
 		dev_info(dev, "phy reset\n");
 		reset_control_assert(udphy->reset);
@@ -1590,15 +1573,8 @@ static int cix_udphy_probe(struct platform_device *pdev)
 		dev_err(dev, "failed to register phy provider\n");
 		goto put_child;
 	}
-	if (!device_property_present(dev, "mode-switch")) {
-		if (udphy->next_mode == UDPHY_MODE_NONE) {
-			if (udphy->dp_phy)
-				udphy->next_mode = UDPHY_MODE_DP;
-			else
-				udphy->next_mode = UDPHY_MODE_USB;
-		}
+	if (!device_property_present(dev, "mode-switch"))
 		usbdp_set_dpphy_mode(udphy);
-	}
 
 	return 0;
 
