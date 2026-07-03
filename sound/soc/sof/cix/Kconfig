@@ -2,7 +2,7 @@
 
 config SND_SOC_SOF_CIX_TOPLEVEL
 	bool "SOF support for CIX audio DSPs"
-	depends on ARM64 || COMPILE_TEST
+	depends on ARM64 || SOC_CIX
 	depends on SND_SOC_SOF_OF
 	help
 	  This adds support for Sound Open Firmware for CIX platforms.

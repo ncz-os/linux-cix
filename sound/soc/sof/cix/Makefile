@@ -1,5 +1,4 @@
 # SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause)
-
 snd-sof-cix-common-objs := cix-common.o
 snd-sof-cix-sky1-objs := cix-sky1.o
 
