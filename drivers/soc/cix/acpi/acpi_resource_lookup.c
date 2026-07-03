@@ -216,8 +216,13 @@ static int cma_init_reserved_memory(phys_addr_t base, phys_addr_t size,
 	else
 		snprintf(cma->name, CMA_MAX_NAME,  "cma%d\n", cma_area_count);
 
-	cma->base_pfn = PFN_DOWN(base);
+	cma->ranges[0].base_pfn = PFN_DOWN(base);
+	cma->ranges[0].early_pfn = PFN_DOWN(base);
+	cma->ranges[0].count = size >> PAGE_SHIFT;
+	cma->nranges = 1;
 	cma->count = size >> PAGE_SHIFT;
+	cma->available_count = size >> PAGE_SHIFT;
+	cma->nid = NUMA_NO_NODE;
 	cma->order_per_bit = order_per_bit;
 	*res_cma = cma;
 	cma_area_count++;

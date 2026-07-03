@@ -360,7 +360,7 @@ err_destroy_class_dev:
 	return ret;
 }
 
-static int cix_aec_remove(struct platform_device *pdev)
+static void cix_aec_remove(struct platform_device *pdev)
 {
 	struct cix_aec *aec = platform_get_drvdata(pdev);
 
@@ -374,8 +374,6 @@ static int cix_aec_remove(struct platform_device *pdev)
 		device_unregister(aec->class_dev);
 		aec->class_dev = NULL;
 	}
-
-	return 0;
 }
 
 static const struct acpi_device_id cix_aec_acpi_match[] = {
