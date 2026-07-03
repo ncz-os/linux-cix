@@ -22,7 +22,7 @@ int trilin_dp_encoder_atomic_adjust_mode(struct trilin_dp *dp,
 	struct drm_display_mode *adjusted_mode);
 enum drm_mode_status
 trilin_dp_connector_mode_valid(struct drm_connector *connector,
-			       struct drm_display_mode *mode);
+			       const struct drm_display_mode *mode);
 void trilin_dp_connector_reset(struct drm_connector *connector);
 int trilin_dp_fill_modes(struct drm_connector *connector, uint32_t maxX,
 			 uint32_t maxY);
