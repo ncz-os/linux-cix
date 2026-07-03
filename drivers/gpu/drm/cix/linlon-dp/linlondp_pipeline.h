@@ -554,36 +554,36 @@ void pipeline_composition_size(struct linlondp_crtc_state *kcrtc_st,
 			       bool side_by_side, u16 *hsize, u16 *vsize,
 			       bool is_overlap);
 
-struct drm_atomic_state;
+struct drm_atomic_commit;
 
 int linlondp_build_layer_data_flow(struct linlondp_layer *layer,
 				   struct linlondp_plane_state *kplane_st,
 				   struct linlondp_crtc_state *kcrtc_st,
-				   struct drm_atomic_state *drm_st,
+				   struct drm_atomic_commit *drm_st,
 				   struct linlondp_data_flow_cfg *dflow);
 int linlondp_build_wb_data_flow(struct linlondp_layer *wb_layer,
 				struct drm_connector_state *conn_st,
 				struct linlondp_crtc_state *kcrtc_st,
-				struct drm_atomic_state *drm_st,
+				struct drm_atomic_commit *drm_st,
 				struct linlondp_data_flow_cfg *dflow);
 int linlondp_build_display_data_flow(struct linlondp_crtc *kcrtc,
 				     struct linlondp_crtc_state *kcrtc_st,
-				     struct drm_atomic_state *drm_st);
+				     struct drm_atomic_commit *drm_st);
 
 int linlondp_build_layer_split_data_flow(struct linlondp_layer *left,
 					 struct linlondp_plane_state *kplane_st,
 					 struct linlondp_crtc_state *kcrtc_st,
-					 struct drm_atomic_state *drm_st,
+					 struct drm_atomic_commit *drm_st,
 					 struct linlondp_data_flow_cfg *dflow);
 int linlondp_build_layer_sbs_data_flow(struct linlondp_layer *layer,
 				       struct linlondp_plane_state *kplane_st,
 				       struct linlondp_crtc_state *kcrtc_st,
-				       struct drm_atomic_state *drm_st,
+				       struct drm_atomic_commit *drm_st,
 				       struct linlondp_data_flow_cfg *dflow);
 int linlondp_build_wb_split_data_flow(struct linlondp_layer *wb_layer,
 				      struct drm_connector_state *conn_st,
 				      struct linlondp_crtc_state *kcrtc_st,
-				      struct drm_atomic_state *drm_st,
+				      struct drm_atomic_commit *drm_st,
 				      struct linlondp_data_flow_cfg *dflow);
 int linlondp_build_wb_sbs_data_flow(struct linlondp_crtc *kcrtc,
 				    struct drm_connector_state *conn_st,
@@ -592,15 +592,15 @@ int linlondp_build_wb_sbs_data_flow(struct linlondp_crtc *kcrtc,
 
 int linlondp_release_unclaimed_resources(struct linlondp_pipeline *pipe,
 					 struct linlondp_crtc_state *kcrtc_st,
-					 struct drm_atomic_state *drm_st);
+					 struct drm_atomic_commit *drm_st);
 
 struct linlondp_pipeline_state *
 linlondp_pipeline_get_old_state(struct linlondp_pipeline *pipe,
-				struct drm_atomic_state *state);
+				struct drm_atomic_commit *state);
 bool linlondp_pipeline_disable(struct linlondp_pipeline *pipe,
-			       struct drm_atomic_state *old_state);
+			       struct drm_atomic_commit *old_state);
 void linlondp_pipeline_update(struct linlondp_pipeline *pipe,
-			      struct drm_atomic_state *old_state);
+			      struct drm_atomic_commit *old_state);
 
 void linlondp_complete_data_flow_cfg(struct linlondp_layer *layer,
 				     struct linlondp_data_flow_cfg *dflow,
