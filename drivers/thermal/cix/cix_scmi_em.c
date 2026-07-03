@@ -10,10 +10,28 @@
 #include <linux/pm_opp.h>
 #include <linux/scmi_protocol.h>
 #include <linux/units.h>
+#include <linux/of.h>
 #include <linux/cix/cix_scmi_em.h>
 
 static struct scmi_protocol_handle *ph;
 static const struct scmi_perf_proto_ops *perf_ops;
+
+/*
+ * SCMI v7.2 dropped perf_ops->device_domain_id(); resolve the perf domain
+ * from the device clocks phandle like the old helper did (DT boot only).
+ */
+static int cix_scmi_device_domain_id(struct device *dev)
+{
+	struct of_phandle_args clkspec;
+
+	if (!dev->of_node ||
+	    of_parse_phandle_with_args(dev->of_node, "clocks", "#clock-cells",
+				       0, &clkspec))
+		return -EINVAL;
+	of_node_put(clkspec.np);
+	return clkspec.args[0];
+}
+
 
 static int __maybe_unused
 cix_scmi_get_em_power(struct device *dev, unsigned long *power,
@@ -23,7 +41,7 @@ cix_scmi_get_em_power(struct device *dev, unsigned long *power,
 	unsigned long Hz;
 	int ret, domain;
 
-	domain = perf_ops->device_domain_id(dev);
+	domain = cix_scmi_device_domain_id(dev);
 	if (domain < 0)
 		return domain;
 
