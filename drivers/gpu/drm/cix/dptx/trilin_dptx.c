@@ -1952,10 +1952,8 @@ static int trilin_dp_ctrl_stream_off(struct trilin_dp *dp,
 {
 	u32 regs_off = TRILIN_DPTX_SOURCE_OFFSET * dp_panel->source_id;
 
-	if (dp->edp_panel) {
-		if (drm_panel_disable(dp->edp_panel))
-			DP_INFO("edp panel disable failed");
-	}
+	if (dp->edp_panel)
+		drm_panel_disable(dp->edp_panel);
 	/*reset infoframe*/
 	trilin_dp_write(dp, TRILIN_DPTX_SEC0_INFOFRAME_ENABLE + regs_off, 0);
 	trilin_dp_write(dp, TRILIN_DPTX_SEC0_INFOFRAME_SELECT + regs_off, 0);
@@ -2179,11 +2177,8 @@ static int trilin_dp_core_on(struct trilin_dp *dp, bool shallow)
 		dp->platform_id);
 
 	if (dp->edp_panel) {
-		rc = drm_panel_enable(dp->edp_panel);
-		if (rc) {
-			DP_INFO("edp panel disable failed but GO ON");
-			rc = 0;
-		}
+		drm_panel_enable(dp->edp_panel);
+		rc = 0;
 	}
 	dp->state |= DPTX_STATE_INIT_TRAIN;
 	return rc;
@@ -2240,11 +2235,7 @@ static int trilin_dp_edp_panel_prepare(struct trilin_dp *dp)
 	if (!dp->edp_panel || dp->edp_panel_ready)
 		return 0;
 
-	rc = drm_panel_prepare(dp->edp_panel);
-	if (rc) {
-		DP_ERR("edp panel prepare failed: %d\n", rc);
-		return rc;
-	}
+	drm_panel_prepare(dp->edp_panel);
 	msleep(50);
 	dp->edp_panel_ready = true;
 	return 0;
@@ -2255,8 +2246,7 @@ static void trilin_dp_edp_panel_unprepare(struct trilin_dp *dp)
 	if (!dp->edp_panel || !dp->edp_panel_ready)
 		return;
 
-	if (drm_panel_unprepare(dp->edp_panel))
-		DP_INFO("edp panel unprepare failed");
+	drm_panel_unprepare(dp->edp_panel);
 
 	dp->edp_panel_ready = false;
 }
