@@ -309,7 +309,7 @@ struct trilin_connector {
 	struct trilin_dp *dp;
 	struct trilin_dp_panel *dp_panel;
 	enum trilin_output_type type;
-	struct drm_atomic_state *state;
+	struct drm_atomic_commit *state;
 
 	struct trilin_dp_config config;
 	struct hdmi_drm_infoframe drm_infoframe;
