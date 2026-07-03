@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause)
 /*
- * Common helpers for the audio DSP on CIX SoCs
+ * Common helpers for the audio DSP on CIX
  *
  * Copyright 2024 Cix Technology Group Co., Ltd.
  */
@@ -12,15 +12,15 @@
 #include "cix-common.h"
 
 /**
- * cix_get_registers - Read DSP registers after a panic/oops
- * @sdev: SOF device
- * @xoops: Stores information about registers
- * @panic_info: Stores information about filename and line number
- * @stack: Stores the stack dump
- * @stack_words: Size of the stack dump in words
+ * cix_get_registers() - This function is called in case of DSP oops
+ * in order to gather information about the registers, filename and
+ * linenumber and stack.
  *
- * This function is called in case of DSP oops in order to gather
- * information about the registers, filename, linenumber and stack.
+ * @sdev: SOF device
+ * @xoops: Stores information about registers.
+ * @panic_info: Stores information about filename and line number.
+ * @stack: Stores the stack dump.
+ * @stack_words: Size of the stack dump.
  */
 void cix_get_registers(struct snd_sof_dev *sdev,
 		       struct sof_ipc_dsp_oops_xtensa *xoops,
@@ -47,12 +47,11 @@ void cix_get_registers(struct snd_sof_dev *sdev,
 }
 
 /**
- * cix_dump - Dump DSP state on panic
- * @sdev: SOF device
- * @flags: Dump flags (unused but required by ops prototype)
+ * cix_dump() - This function is called when a panic message is
+ * received from the firmware.
  *
- * This function is called when a panic message is received from
- * the firmware. It reads and prints the DSP state for debugging.
+ * @sdev: SOF device
+ * @flags: parameter not used but required by ops prototype
  */
 void cix_dump(struct snd_sof_dev *sdev, u32 flags)
 {
@@ -61,14 +60,12 @@ void cix_dump(struct snd_sof_dev *sdev, u32 flags)
 	u32 stack[CIX_STACK_DUMP_SIZE];
 	u32 status;
 
-	/*
-	 * Get information about the panic status from the debug box area.
+	/* Get information about the panic status from the debug box area.
 	 * Compute the trace point based on the status.
 	 */
 	sof_mailbox_read(sdev, sdev->debug_box.offset + 0x4, &status, 4);
 
-	/*
-	 * Get information about the registers, the filename and line
+	/* Get information about the registers, the filename and line
 	 * number and the stack.
 	 */
 	cix_get_registers(sdev, &xoops, &panic_info, stack,
@@ -105,5 +102,4 @@ void cix_disable_clocks(struct snd_sof_dev *sdev, struct cix_clocks *clks)
 EXPORT_SYMBOL(cix_disable_clocks);
 
 MODULE_AUTHOR("Joakim Zhang <joakim.zhang@cixtech.com>");
-MODULE_DESCRIPTION("SOF common support for CIX platforms");
 MODULE_LICENSE("Dual BSD/GPL");
