@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause)
 /*
- * Sound Open Firmware platform driver for CIX Sky1 SoC
- *
  * Copyright 2024 Cix Technology Group Co., Ltd.
  */
 
@@ -24,29 +22,27 @@
 #include "../sof-of-dev.h"
 #include "cix-common.h"
 
-#define MBOX_OFFSET			0x800000
-#define MBOX_SIZE			0x1000
+#define MBOX_OFFSET				0x800000
+#define MBOX_SIZE				0x1000
 
-#define SKY1_SRAM_BASE			0x1C80400000ULL
-#define SKY1_SRAM_SIZE			0x100000
+#define SKY1_SRAM_BASE				0x1C80400000
+#define SKY1_SRAM_SIZE				0x100000
 
-/* DSP register offsets */
-#define SKY1_INFO_HIFI0			0x00
-#define SKY1_INFO_HIFI1			0x04
-#define SKY1_INFO_HIFI2			0x08
+/* DSP register define */
+#define SKY1_INFO_HIFI0				0x00
+#define SKY1_INFO_HIFI1				0x04
+#define SKY1_INFO_HIFI2				0x08
 
-/* info hifi0 bits */
-#define SKY1_INFO_HIFI0_OCD_HALTONRST	BIT(1)
-#define SKY1_INFO_HIFI0_CLK_EN		BIT(0)
-
-/* info hifi1 bits */
+/* info hifi0 */
+#define SKY1_INFO_HIFI0_OCD_HALTONRST		BIT(1)
+#define SKY1_INFO_HIFI0_CLK_EN			BIT(0)
+/* info hifi1 */
 #define SKY1_INFO_HIFI1_ALTER_RST_VECTOR	GENMASK(31, 0)
-#define SKY1_INFO_HIFI1_SEL_VECTOR	BIT(0)
-
-/* info hifi2 bits */
-#define SKY1_INFO_HIFI2_NMI		BIT(2)
-#define SKY1_INFO_HIFI2_RUN_STALL	BIT(1)
-#define SKY1_INFO_HIFI2_PWAIT_MODE	BIT(0)
+#define SKY1_INFO_HIFI1_SEL_VECTOR		BIT(0)
+/* info hifi2 */
+#define SKY1_INFO_HIFI2_NMI			BIT(2)
+#define SKY1_INFO_HIFI2_RUN_STALL		BIT(1)
+#define SKY1_INFO_HIFI2_PWAIT_MODE		BIT(0)
 
 static struct clk_bulk_data sky1_dsp_clks[] = {
 	{ .id = "clk" },
@@ -97,16 +93,29 @@ static void sky1_dsp_handle_request(struct cix_dsp_ipc *ipc)
 {
 	struct sky1_priv *priv = cix_dsp_get_data(ipc);
 	u32 p; /* Panic code */
+#if 0
+	int ret;
+#endif
 
 	/* Read the message from the debug box. */
-	sof_mailbox_read(priv->sdev, priv->sdev->debug_box.offset + 4,
-			 &p, sizeof(p));
+	sof_mailbox_read(priv->sdev, priv->sdev->debug_box.offset + 4, &p, sizeof(p));
 
 	/* Check to see if the message is a panic code (0x*dead***) */
-	if ((p & SOF_IPC_PANIC_MAGIC_MASK) == SOF_IPC_PANIC_MAGIC)
+	if ((p & SOF_IPC_PANIC_MAGIC_MASK) == SOF_IPC_PANIC_MAGIC) {
 		snd_sof_dsp_panic(priv->sdev, p, true);
-	else
+	} else {
 		snd_sof_ipc_msgs_rx(priv->sdev);
+
+		/*
+		 * mailbox controller driver would ack automaticly after received message handled,
+		 * if not, need send response ipc manually.
+		 */
+#if 0
+		ret = cix_dsp_ipc_send(priv->dsp_ipc, CIX_DSP_IPC_REP, CIX_DSP_IPC_OP_REP);
+		if (ret)
+			dev_err(priv->dev, "request send ipc failed");
+#endif
+	}
 }
 
 static struct cix_dsp_ops sky1_dsp_ops = {
@@ -121,8 +130,7 @@ static int sky1_send_msg(struct snd_sof_dev *sdev, struct snd_sof_ipc_msg *msg)
 	sof_mailbox_write(sdev, sdev->host_box.offset, msg->msg_data,
 			  msg->msg_size);
 
-	return cix_dsp_ipc_send(priv->dsp_ipc, CIX_DSP_IPC_REQ,
-				CIX_DSP_IPC_OP_REQ);
+	return cix_dsp_ipc_send(priv->dsp_ipc, CIX_DSP_IPC_REQ, CIX_DSP_IPC_OP_REQ);
 }
 
 /*
@@ -130,7 +138,7 @@ static int sky1_send_msg(struct snd_sof_dev *sdev, struct snd_sof_ipc_msg *msg)
  */
 static int sky1_reset(struct snd_sof_dev *sdev)
 {
-	struct sky1_priv *priv = sdev->pdata->hw_pdata;
+	struct sky1_priv *priv = (struct sky1_priv *)sdev->pdata->hw_pdata;
 
 	/* reset DSP core */
 	reset_control_assert(priv->dsp_rst);
@@ -150,7 +158,7 @@ static int sky1_reset(struct snd_sof_dev *sdev)
 
 static int sky1_pre_fw_run(struct snd_sof_dev *sdev)
 {
-	struct sky1_priv *priv = sdev->pdata->hw_pdata;
+	struct sky1_priv *priv = (struct sky1_priv *)sdev->pdata->hw_pdata;
 
 	/* reset DSP core */
 	reset_control_assert(priv->dsp_rst);
@@ -166,7 +174,7 @@ static int sky1_pre_fw_run(struct snd_sof_dev *sdev)
 
 static int sky1_run(struct snd_sof_dev *sdev)
 {
-	struct sky1_priv *priv = sdev->pdata->hw_pdata;
+	struct sky1_priv *priv = (struct sky1_priv *)sdev->pdata->hw_pdata;
 
 	regmap_update_bits(priv->regmap, SKY1_INFO_HIFI2,
 			   SKY1_INFO_HIFI2_RUN_STALL, 0);
@@ -198,7 +206,7 @@ static int sky1_probe(struct snd_sof_dev *sdev)
 	struct device_node *res_node;
 	struct sky1_priv *priv;
 	struct resource res;
-	int ret;
+	int ret = 0;
 
 	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
@@ -230,11 +238,9 @@ static int sky1_probe(struct snd_sof_dev *sdev)
 	cix_dsp_set_data(priv->dsp_ipc, priv);
 	priv->dsp_ipc->ops = &sky1_dsp_ops;
 
-	sdev->bar[SOF_FW_BLK_TYPE_IRAM] = devm_ioremap_wc(sdev->dev,
-							  SKY1_SRAM_BASE,
-							  SKY1_SRAM_SIZE);
+	sdev->bar[SOF_FW_BLK_TYPE_IRAM] = devm_ioremap_wc(sdev->dev, SKY1_SRAM_BASE, SKY1_SRAM_SIZE);
 	if (!sdev->bar[SOF_FW_BLK_TYPE_IRAM]) {
-		dev_err(sdev->dev, "failed to ioremap base 0x%llx size 0x%x\n",
+		dev_err(sdev->dev, "failed to ioremap base 0x%lx size 0x%x\n",
 			SKY1_SRAM_BASE, SKY1_SRAM_SIZE);
 		ret = -ENOMEM;
 		goto exit_pdev_unregister;
@@ -273,7 +279,7 @@ static int sky1_probe(struct snd_sof_dev *sdev)
 
 	priv->regmap = syscon_regmap_lookup_by_phandle(np, "cix,dsp-ctrl");
 	if (IS_ERR(priv->regmap)) {
-		dev_err(&pdev->dev, "cannot find dsp-ctrl registers\n");
+		dev_err(&pdev->dev, "cannot find dsp-ctrl registers");
 		ret = PTR_ERR(priv->regmap);
 		goto exit_pdev_unregister;
 	}
@@ -324,7 +330,7 @@ exit_pdev_unregister:
 	return ret;
 }
 
-static void sky1_remove(struct snd_sof_dev *sdev)
+static int sky1_remove(struct snd_sof_dev *sdev)
 {
 	struct sky1_priv *priv = sdev->pdata->hw_pdata;
 
@@ -333,6 +339,8 @@ static void sky1_remove(struct snd_sof_dev *sdev)
 	cix_disable_clocks(sdev, priv->clks);
 
 	platform_device_unregister(priv->ipc_dev);
+
+	return 0;
 }
 
 /* on CIX there is 1 to 1 match between type and BAR idx */
@@ -385,7 +393,7 @@ static int sky1_dsp_set_power_state(struct snd_sof_dev *sdev,
 
 static int sky1_resume(struct snd_sof_dev *sdev)
 {
-	struct sky1_priv *priv = sdev->pdata->hw_pdata;
+	struct sky1_priv *priv = (struct sky1_priv *)sdev->pdata->hw_pdata;
 	int ret;
 
 	ret = cix_enable_clocks(sdev, priv->clks);
@@ -401,7 +409,7 @@ static int sky1_resume(struct snd_sof_dev *sdev)
 
 static void sky1_suspend(struct snd_sof_dev *sdev)
 {
-	struct sky1_priv *priv = sdev->pdata->hw_pdata;
+	struct sky1_priv *priv = (struct sky1_priv *)sdev->pdata->hw_pdata;
 
 	sky1_free_mbox(priv);
 
@@ -468,11 +476,10 @@ static int sky1_dsp_suspend(struct snd_sof_dev *sdev, unsigned int target_state)
 }
 
 /* sky1 ops */
-static const struct snd_sof_dsp_ops sof_sky1_ops = {
+static struct snd_sof_dsp_ops sof_sky1_ops = {
 	/* probe and remove */
 	.probe		= sky1_probe,
 	.remove		= sky1_remove,
-
 	/* DSP core boot and reset */
 	.reset		= sky1_reset,
 	.pre_fw_run	= sky1_pre_fw_run,
@@ -541,23 +548,23 @@ static struct snd_sof_of_mach sof_sky1_machs[] = {
 
 static struct sof_dev_desc sof_of_sky1_desc = {
 	.of_machines	= sof_sky1_machs,
-	.ipc_supported_mask	= BIT(SOF_IPC_TYPE_3),
-	.ipc_default		= SOF_IPC_TYPE_3,
+	.ipc_supported_mask	= BIT(SOF_IPC),
+	.ipc_default		= SOF_IPC,
 	.default_fw_path = {
-		[SOF_IPC_TYPE_3] = "cix/sof",
+		[SOF_IPC] = "cix/sof",
 	},
 	.default_tplg_path = {
-		[SOF_IPC_TYPE_3] = "cix/sof-tplg",
+		[SOF_IPC] = "cix/sof-tplg",
 	},
 	.default_fw_filename = {
-		[SOF_IPC_TYPE_3] = "sof-sky1.ri",
+		[SOF_IPC] = "sof-sky1.ri",
 	},
 	.nocodec_tplg_filename = "sof-sky1-nocodec.tplg",
 	.ops = &sof_sky1_ops,
 };
 
 static const struct of_device_id sof_of_sky1_ids[] = {
-	{ .compatible = "cix,sky1-dsp", .data = &sof_of_sky1_desc },
+	{ .compatible = "cix,sky1-dsp", .data = &sof_of_sky1_desc},
 	{ }
 };
 MODULE_DEVICE_TABLE(of, sof_of_sky1_ids);
@@ -573,7 +580,6 @@ static struct platform_driver snd_sof_of_sky1_driver = {
 };
 module_platform_driver(snd_sof_of_sky1_driver);
 
-MODULE_IMPORT_NS("SND_SOC_SOF_XTENSA");
+MODULE_IMPORT_NS(SND_SOC_SOF_XTENSA);
 MODULE_AUTHOR("Joakim Zhang <joakim.zhang@cixtech.com>");
-MODULE_DESCRIPTION("SOF support for CIX Sky1");
 MODULE_LICENSE("Dual BSD/GPL");
