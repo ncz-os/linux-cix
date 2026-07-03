@@ -596,30 +596,6 @@ static unsigned long sky1_audss_clk_divider_recalc_rate(struct clk_hw *hw,
 				   divider->flags, divider->width);
 }
 
-static long sky1_audss_clk_divider_round_rate(struct clk_hw *hw,
-					      unsigned long rate,
-					      unsigned long *prate)
-{
-	struct clk_divider *divider = to_clk_divider(hw);
-	struct sky1_clk_divider *sky1_div = to_sky1_clk_divider(divider);
-
-	/* if read only, just return current value */
-	if (divider->flags & CLK_DIVIDER_READ_ONLY) {
-		u32 val;
-
-		regmap_read(sky1_div->regmap, sky1_div->offset, &val);
-		val = val >> divider->shift;
-		val &= clk_div_mask(divider->width);
-
-		return divider_ro_round_rate(hw, rate, prate, divider->table,
-					     divider->width, divider->flags,
-					     val);
-	}
-
-	return divider_round_rate(hw, rate, prate, divider->table,
-				  divider->width, divider->flags);
-}
-
 static int sky1_audss_clk_divider_determine_rate(struct clk_hw *hw,
 						 struct clk_rate_request *req)
 {
@@ -683,7 +659,6 @@ static int sky1_audss_clk_divider_set_rate(struct clk_hw *hw,
 /* Derive from drivers/clk/clk-divider.c clk_div_ops */
 static const struct clk_ops sky1_audss_clk_divider_ops = {
 	.recalc_rate = sky1_audss_clk_divider_recalc_rate,
-	.round_rate = sky1_audss_clk_divider_round_rate,
 	.determine_rate = sky1_audss_clk_divider_determine_rate,
 	.set_rate = sky1_audss_clk_divider_set_rate,
 };
@@ -1170,7 +1145,7 @@ fail_clks_set:
 	return ret;
 }
 
-static int sky1_audss_clk_remove(struct platform_device *pdev)
+static void sky1_audss_clk_remove(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct sky1_audss_clks_priv *priv = dev_get_drvdata(dev);
@@ -1181,8 +1156,6 @@ static int sky1_audss_clk_remove(struct platform_device *pdev)
 		pm_runtime_force_suspend(dev);
 
 	pm_runtime_disable(dev);
-
-	return 0;
 }
 
 static int __maybe_unused sky1_audss_clk_runtime_suspend(struct device *dev)
