@@ -250,12 +250,11 @@ static int cix_ap2se_ipc_probe(struct platform_device *pdev)
 	mdev->init_status = 1;
 	return ret;
 }
-static int cix_ap2se_ipc_remove(struct platform_device *pdev)
+static void cix_ap2se_ipc_remove(struct platform_device *pdev)
 {
 	struct cix_ap2se_ipc_dev *mdev = platform_get_drvdata(pdev);
 
 	cix_ap2se_ipc_free_mbox(mdev);
-	return 0;
 }
 
 static int cix_ap2se_ipc_suspend(struct device *dev)
