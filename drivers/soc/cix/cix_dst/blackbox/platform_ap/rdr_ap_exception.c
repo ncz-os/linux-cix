@@ -12,8 +12,8 @@
 #include <linux/soc/cix/util.h>
 #include <linux/soc/cix/rdr_pub.h>
 #include <linux/soc/cix/rdr_platform.h>
-#include <linux/soc/cix/mntn_public_interface.h>
-#include <linux/soc/cix/mntn_subtype_exception.h>
+#include <mntn_public_interface.h>
+#include <mntn_subtype_exception.h>
 #include "include/rdr_ap_adapter.h"
 #include "../rdr_print.h"
 #include "../rdr_inner.h"
@@ -92,7 +92,7 @@ int rdr_exception_init(void)
 	ret = atomic_notifier_chain_register(&panic_notifier_list,
 					     &ap_panic_block);
 	panic_on_oops = 1;
-	/* sysctl_panic_on_rcu_stall is static in newer kernels, skip setting */
+	sysctl_panic_on_rcu_stall = 1;
 	ret = register_die_notifier(&ap_die_block);
 	return ret;
 }
