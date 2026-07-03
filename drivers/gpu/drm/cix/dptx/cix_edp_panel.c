@@ -27,11 +27,9 @@
 #include <linux/gpio/consumer.h>
 #include <linux/iopoll.h>
 #include <linux/module.h>
-#include <linux/of.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
 #include <linux/regulator/consumer.h>
-#include <linux/version.h>
 
 #include <video/display_timing.h>
 #include <video/of_display_timing.h>
@@ -716,11 +714,7 @@ exit:
 	return err;
 }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
 static int cix_edp_panel_remove(struct device *dev)
-#else
-static void cix_edp_panel_remove(struct device *dev)
-#endif
 {
 	struct cix_edp_panel *panel = dev_get_drvdata(dev);
 
@@ -728,9 +722,7 @@ static void cix_edp_panel_remove(struct device *dev)
 	drm_panel_disable(&panel->base);
 	drm_panel_unprepare(&panel->base);
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
 	return 0;
-#endif
 }
 
 static void cix_edp_panel_shutdown(struct device *dev)
@@ -851,17 +843,9 @@ static int cix_edp_panel_platform_probe(struct platform_device *pdev)
 	return cix_edp_panel_probe(&pdev->dev, desc);
 }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
 static int cix_edp_panel_platform_remove(struct platform_device *pdev)
-#else
-static void cix_edp_panel_platform_remove(struct platform_device *pdev)
-#endif
 {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 11, 0)
 	return cix_edp_panel_remove(&pdev->dev);
-#else
-	cix_edp_panel_remove(&pdev->dev);
-#endif
 }
 
 static void cix_edp_panel_platform_shutdown(struct platform_device *pdev)
