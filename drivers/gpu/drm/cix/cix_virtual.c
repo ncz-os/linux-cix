@@ -6,12 +6,10 @@
 #include <linux/component.h>
 #include <linux/device.h>
 #include <linux/module.h>
-#include <linux/of.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
 #include <linux/fwnode.h>
 #include <linux/acpi.h>
-#include <linux/version.h>
 
 #include <drm/drm_of.h>
 #include <drm/drm_encoder.h>
@@ -286,11 +284,7 @@ static int cix_virtual_probe(struct platform_device *pdev)
 	return component_add(dev, &cix_virtual_ops);
 }
 
-#if KERNEL_VERSION(6, 11, 0) > LINUX_VERSION_CODE
 static int cix_virtual_remove(struct platform_device *pdev)
-#else
-static void cix_virtual_remove(struct platform_device *pdev)
-#endif
 {
 	struct device *dev = &pdev->dev;
 
@@ -298,9 +292,7 @@ static void cix_virtual_remove(struct platform_device *pdev)
 
 	dev_set_drvdata(dev, NULL);
 
-#if KERNEL_VERSION(6, 11, 0) > LINUX_VERSION_CODE
 	return 0;
-#endif
 }
 
 struct platform_driver cix_virtual_driver = {
