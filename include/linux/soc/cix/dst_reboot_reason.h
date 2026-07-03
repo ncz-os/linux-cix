@@ -12,7 +12,6 @@
 void set_reboot_reason(unsigned int reboot_reason, unsigned int sub_reason);
 unsigned int get_reboot_reason(bool is_last);
 unsigned int get_sub_reboot_reason(bool is_last);
-unsigned int get_hw_reboot_reason(void);
 void plat_pm_system_reset_comm(const char *cmd);
 
 #endif

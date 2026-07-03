@@ -34,6 +34,7 @@
 #define EXEC_TYPE_1                               \
 	MNTN_DEF_ARGS(									\
 	EXEC_TYPE_DEF(AP_S_COLDBOOT, 0x000000000) \
+	EXEC_TYPE_DEF(BOOTLOADER, 0x000000001) \
 	EXEC_TYPE_DEF(UNKNOWN, 0x0000000d)        \
 	EXEC_TYPE_DEF(MOUNTFAIL, 0x0000000e)      \
 	EXEC_TYPE_DEF(HUNGDETECT, 0x0000000f)     \
@@ -196,7 +197,7 @@ struct rdr_ringbuffer {
 	unsigned int count;
 	unsigned int is_full;
 	char keys[RDR_RB_KEYS_MAX + 1];
-	unsigned char data[];
+	unsigned char data[1];
 };
 
 #endif

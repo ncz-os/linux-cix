@@ -7,27 +7,20 @@
 #include <linux/arm_sdei.h>
 #include <linux/soc/cix/dst_reboot_reason.h>
 #include <linux/io.h>
-#include <linux/delay.h>
-#include <asm/barrier.h>
 #include "dst_print.h"
 #if IS_ENABLED(CONFIG_PLAT_BBOX)
 #include "blackbox/rdr_inner.h"
 #endif
+#include <mntn_subtype_exception.h>
 
 #define REBOOT_REASON_SHIFT 0
 #define SUB_REBOOT_REASON_SHIFT 8
-#define REBOOT_REASON_MASK 0xFFFFFF00
-#define SUB_REBOOT_REASON_MASK 0xFFFF00FF
+#define REBOOT_REASON_MASK 0xFFFF0000
+
+#define SKY1_CSU_SE_WDT_2ND_TIMEOUT (0x8)
 
 static u64 g_reboot_reason_addr;
 static uint32_t g_last_reboot_reason;
-static uint32_t g_last_hw_reboot_reason;
-
-unsigned int get_hw_reboot_reason(void)
-{
-	return g_last_hw_reboot_reason;
-}
-EXPORT_SYMBOL(get_hw_reboot_reason);
 
 #ifdef CONFIG_SKY1_REBOOT_REASON
 #define CIX_SIP_SVC_SET_REBOOT_REASON (0xc2000002)
@@ -37,20 +30,13 @@ static void set_reboot_reason_sky1(unsigned int reboot_reason)
 
 	arm_smccc_smc(CIX_SIP_SVC_SET_REBOOT_REASON, reboot_reason, 0, 0, 0, 0,
 		      0, 0, &res);
-	/*
-	 * Ensure SMC write completes before proceeding.
-	 * The SMC call may not have fully committed the reboot reason
-	 * to retention memory by the time we return.
-	 */
-	mb();
-	udelay(100);
 }
 #endif
 
 void set_reboot_reason(unsigned int reboot_reason, unsigned int sub_reason)
 {
 	unsigned int value;
-	static u32 prev_set;
+	static unsigned int prev_set;
 
 	if (prev_set != 0 && prev_set != COLDBOOT) {
 		DST_ERR("reboot reason is already set\n");
@@ -61,18 +47,18 @@ void set_reboot_reason(unsigned int reboot_reason, unsigned int sub_reason)
 		value = readl((void *)(uintptr_t)g_reboot_reason_addr);
 		value &= REBOOT_REASON_MASK;
 		value |= reboot_reason;
-		value |= ((sub_reason << SUB_REBOOT_REASON_SHIFT) &
-			  ~SUB_REBOOT_REASON_MASK);
+		value |= sub_reason << SUB_REBOOT_REASON_SHIFT;
+		DST_PN("set reboot reason 0x%x\n", value);
 #ifdef CONFIG_SKY1_REBOOT_REASON
-		DST_ERR("set reboot reason 0x%x\n", value);
 		set_reboot_reason_sky1(value);
 #else
-		DST_PN("set reboot reason 0x%x\n", value);
 		writel(value, (void *)(uintptr_t)g_reboot_reason_addr);
-		/* Ensure the write completes before proceeding */
-		mb();
-		udelay(100);
 #endif
+
+		if ((reboot_reason == SE_REBOOT) && (sub_reason == SE_REBOOT_SE_SECOND_WDT)) {
+			return;
+		}
+
 		prev_set = reboot_reason;
 	} else {
 		DST_ERR("set failed 0x%x\n", reboot_reason);
@@ -129,7 +115,8 @@ void plat_pm_system_reset_comm(const char *cmd)
 
 	if (curr_reboot_type == UNKNOWN) {
 		curr_reboot_type = COLDBOOT;
-		DST_PN("no specific reboot type, using COLDBOOT\n");
+		console_verbose();
+		dump_stack();
 	}
 	set_reboot_reason(curr_reboot_type, 0);
 }
@@ -143,8 +130,8 @@ void plat_pm_system_reset_comm(const char *cmd)
  * 3	0x218	WDT 2nd TIME-OUT           HW
  * 4	0x218	WARM RESET                 HW
  * 5	0x218	EXTERNAL RESET             HW
- * 6	0x218	POWER BUTTON OVERRID       HW
- * 7	0x218	CSU_SE WDT 2ND TIME-OUT    HW
+ * 7	0x218	POWER BUTTON OVERRID       HW
+ * 8	0x218	CSU_SE WDT 2ND TIME-OUT    HW
  */
 void print_hw_reboot_reason(u32 value)
 {
@@ -169,10 +156,10 @@ void print_hw_reboot_reason(u32 value)
 	case 5:
 		Desc = "EXTERNAL RESET";
 		break;
-	case 6:
+	case 7:
 		Desc = "POWER BUTTON OVERRID";
 		break;
-	case 7:
+	case 8:
 		Desc = "CSU_SE WDT 2ND TIME-OUT";
 		break;
 	default:
@@ -190,28 +177,32 @@ void print_hw_reboot_reason(u32 value)
  */
 static void reboot_reason_addr_init(void)
 {
-	static u64 hw_reboot_reason_addr;
+	u64 hw_reboot_reason_addr;
+	u32 hw_reboot_reason;
 
 	g_reboot_reason_addr =
 		(uintptr_t)ioremap_wc(REBOOT_REASON_ADDR, sizeof(int));
+
+	hw_reboot_reason_addr =
+		(uintptr_t)ioremap_wc(SKY1_HW_REBOOT_REASON_ADDR, sizeof(int));
+
+	if (hw_reboot_reason_addr) {
+		hw_reboot_reason = readl((void *)(uintptr_t)hw_reboot_reason_addr);
+		print_hw_reboot_reason(hw_reboot_reason);
+
+		// if last hw reboot reason is se wdt 2nd timeout, set se reboot reason
+		if (SKY1_CSU_SE_WDT_2ND_TIMEOUT == hw_reboot_reason) {
+			set_reboot_reason(SE_REBOOT, SE_REBOOT_SE_SECOND_WDT);
+			DST_PN("set se wdt 2nd timeout reboot reason...\n");
+		}
+	}
 
 	if (g_reboot_reason_addr) {
 		g_last_reboot_reason =
 			readl((void *)(uintptr_t)g_reboot_reason_addr);
 		writel(0, (void *)(uintptr_t)g_reboot_reason_addr);
 		DST_PN("last sw reboot reason:0x%x\n", g_last_reboot_reason);
-#ifdef CONFIG_SKY1_REBOOT_REASON
 		set_reboot_reason_sky1(AP_S_COLDBOOT);
-#endif
-	}
-
-	hw_reboot_reason_addr =
-		(uintptr_t)ioremap_wc(SKY1_HW_REBOOT_REASON_ADDR, sizeof(int));
-
-	if (hw_reboot_reason_addr) {
-		g_last_hw_reboot_reason =
-			readl((void *)(uintptr_t)hw_reboot_reason_addr);
-		print_hw_reboot_reason(g_last_hw_reboot_reason);
 	}
 }
 

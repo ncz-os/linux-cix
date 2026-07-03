@@ -3,12 +3,13 @@
 
 #include <linux/arm_sdei.h>
 #include <linux/cacheflush.h>
-#include <linux/soc/cix/mntn_subtype_exception.h>
+#include <mntn_subtype_exception.h>
 #include <linux/soc/cix/rdr_platform.h>
 #include <linux/soc/cix/dst_reboot_reason.h>
 #include <linux/nmi.h>
 #include <linux/sched/debug.h>
 #include <linux/console.h>
+#include <linux/soc/cix/mntn_dump.h>
 #include "blackbox/rdr_inner.h"
 #include "dst_print.h"
 
@@ -23,9 +24,6 @@ struct EventArgs {
 	struct rdr_exception_info_s einfo;
 };
 
-#ifdef CONFIG_PLAT_KERNELDUMP
-extern void plat_set_cpu_regs(int coreid, struct pt_regs *reg);
-#endif
 static int plat_sdei_event_callback(u32 event, struct pt_regs *regs, void *arg);
 
 /*
@@ -119,11 +117,7 @@ int plat_sdei_event_callback(u32 event, struct pt_regs *regs, void *arg)
 		return 0;
 	}
 
-#ifdef CONFIG_PLAT_KERNELDUMP
-	plat_set_cpu_regs(raw_smp_processor_id(), regs);
-#endif
 	trigger_allbutcpu_cpu_backtrace(smp_processor_id());
-	smp_send_stop();
 
 	rdr_system_error(evtargs->einfo.e_modid, 0, 0);
 
@@ -143,7 +137,10 @@ late_initcall(dst_wdt_sdei_init);
 
 static int __init plat_sdei_init(void)
 {
-	sdei_init();
+	if (acpi_disabled) {
+		DST_PN("ACPI is disabled, init sdei\n");
+		sdei_init();
+	}
 	return 0;
 }
 
