@@ -383,7 +383,7 @@ static const struct of_device_id scmi_of_match[] = {
 MODULE_DEVICE_TABLE(of, scmi_of_match);
 
 static const struct acpi_device_id scmi_acpi_match[] = {
-	{ .id = "CIXHA006", .driver_data = (kernel_ulong_t)&scmi_mailbox_desc },
+	{ .id = "CIXHA006" },
 	{ /* Sentinel */ },
 };
 
