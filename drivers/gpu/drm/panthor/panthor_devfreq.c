@@ -4,7 +4,9 @@
 #include <linux/clk.h>
 #include <linux/devfreq.h>
 #include <linux/devfreq_cooling.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/pm_domain.h>
 #include <linux/pm_opp.h>
 
 #include <drm/drm_managed.h>
@@ -12,6 +14,24 @@
 
 #include "panthor_devfreq.h"
 #include "panthor_device.h"
+
+/*
+ * SCMI rate limiting for GPU DVFS.
+ *
+ * The SCP firmware on Sky1 processes SCMI perf_level_set messages through a
+ * shared mailbox channel used by all 12 performance domains. Under sustained
+ * devfreq load (governor polling every 50-100 ms), the firmware falls behind,
+ * responds out of order, and the SCMI transport locks up -- blocking all SCMI
+ * consumers including networking.
+ *
+ * These constants are tuned from real hardware experience on the Sky1 SoC.
+ * Do NOT simplify, round, or remove them; the values were selected after
+ * observing the firmware mailbox lock-up behavior under sustained load.
+ */
+#define PANTHOR_SCMI_RATE_LIMIT_US	100000		/* 100 ms min between SCMI calls */
+#define PANTHOR_SCMI_MAX_ERRORS		3		/* errors before safe-freq boost */
+#define PANTHOR_SCMI_BACKOFF_BASE_US	500000		/* 500 ms base backoff */
+#define PANTHOR_SCMI_BACKOFF_MAX_US	4000000		/* 4 s max backoff */
 
 /**
  * struct panthor_devfreq - Device frequency management
@@ -22,6 +42,16 @@ struct panthor_devfreq {
 
 	/** @gov_data: Governor data. */
 	struct devfreq_simple_ondemand_data gov_data;
+
+	/**
+	 * @opp_dev: Virtual device for SCMI perf-domain OPP control.
+	 *
+	 * On platforms with a named "perf" power domain, frequency changes
+	 * must go through this virtual device rather than the main GPU
+	 * device, so the OPP framework routes via the SCMI performance
+	 * state (frequency + voltage). NULL = no SCMI perf domain.
+	 */
+	struct device *opp_dev;
 
 	/** @busy_time: Busy time. */
 	ktime_t busy_time;
@@ -36,13 +66,25 @@ struct panthor_devfreq {
 	bool last_busy_state;
 
 	/**
-	 * @lock: Lock used to protect busy_time, idle_time, time_last_update and
-	 * last_busy_state.
-	 *
-	 * These fields can be accessed concurrently by panthor_devfreq_get_dev_status()
-	 * and panthor_devfreq_record_{busy,idle}().
+	 * @lock: Lock protecting busy_time, idle_time, time_last_update,
+	 * last_busy_state, and the SCMI rate-limit fields below.
 	 */
 	spinlock_t lock;
+
+	/** @last_set_freq: Last frequency successfully sent to SCMI. */
+	unsigned long last_set_freq;
+
+	/** @last_set_time: ktime of the last actual SCMI frequency change. */
+	ktime_t last_set_time;
+
+	/** @scmi_err_count: Consecutive SCMI error count for backoff. */
+	unsigned int scmi_err_count;
+
+	/** @backoff_until: ktime before which SCMI calls are suppressed. */
+	ktime_t backoff_until;
+
+	/** @safe_freq: Mid-range OPP for error recovery (computed at init). */
+	unsigned long safe_freq;
 };
 
 static void panthor_devfreq_update_utilization(struct panthor_devfreq *pdevfreq)
@@ -60,20 +102,118 @@ static void panthor_devfreq_update_utilization(struct panthor_devfreq *pdevfreq)
 	pdevfreq->time_last_update = now;
 }
 
+/*
+ * Set GPU frequency via the SCMI perf domain's performance state.
+ * Unlike dev_pm_opp_set_rate(), this does not require a clock --
+ * the genpd's set_performance_state callback handles the SCMI call.
+ */
+static int panthor_devfreq_scmi_set_freq(struct device *dev, unsigned long freq)
+{
+	struct dev_pm_opp *opp;
+	int ret;
+
+	opp = dev_pm_opp_find_freq_ceil(dev, &freq);
+	if (IS_ERR(opp))
+		return PTR_ERR(opp);
+
+	ret = dev_pm_opp_set_opp(dev, opp);
+	dev_pm_opp_put(opp);
+	return ret;
+}
+
 static int panthor_devfreq_target(struct device *dev, unsigned long *freq,
 				  u32 flags)
 {
+	struct panthor_device *ptdev = dev_get_drvdata(dev);
+	struct panthor_devfreq *pdevfreq = ptdev->devfreq;
 	struct dev_pm_opp *opp;
+	unsigned long target_freq;
+	unsigned long irqflags;
+	ktime_t now;
 	int err;
 
 	opp = devfreq_recommended_opp(dev, freq, flags);
 	if (IS_ERR(opp))
 		return PTR_ERR(opp);
+	target_freq = *freq;
 	dev_pm_opp_put(opp);
 
-	err = dev_pm_opp_set_rate(dev, *freq);
+	/* Non-SCMI platforms: pass through unchanged */
+	if (!pdevfreq->opp_dev)
+		return dev_pm_opp_set_rate(dev, target_freq);
 
-	return err;
+	now = ktime_get();
+	spin_lock_irqsave(&pdevfreq->lock, irqflags);
+
+	/* Suppress calls during error backoff */
+	if (ktime_before(now, pdevfreq->backoff_until)) {
+		spin_unlock_irqrestore(&pdevfreq->lock, irqflags);
+		return 0;
+	}
+
+	/* Skip if already at the requested frequency */
+	if (target_freq == pdevfreq->last_set_freq) {
+		spin_unlock_irqrestore(&pdevfreq->lock, irqflags);
+		return 0;
+	}
+
+	/* Rate limit: enforce minimum interval between SCMI calls (100 ms) */
+	if (ktime_us_delta(now, pdevfreq->last_set_time) <
+	    PANTHOR_SCMI_RATE_LIMIT_US) {
+		spin_unlock_irqrestore(&pdevfreq->lock, irqflags);
+		return 0;
+	}
+
+	spin_unlock_irqrestore(&pdevfreq->lock, irqflags);
+
+	/* Actual SCMI frequency change (may sleep on mailbox) */
+	err = panthor_devfreq_scmi_set_freq(dev, target_freq);
+
+	spin_lock_irqsave(&pdevfreq->lock, irqflags);
+
+	if (!err) {
+		pdevfreq->last_set_freq = target_freq;
+		pdevfreq->last_set_time = now;
+		pdevfreq->scmi_err_count = 0;
+		pdevfreq->backoff_until = 0;
+	} else {
+		unsigned int errcnt = ++pdevfreq->scmi_err_count;
+		unsigned long backoff_us;
+
+		/* Exponential backoff: 500 ms, 1 s, 2 s, 4 s (capped) */
+		backoff_us = PANTHOR_SCMI_BACKOFF_BASE_US <<
+			     min(errcnt - 1, 3u);
+		if (backoff_us > PANTHOR_SCMI_BACKOFF_MAX_US)
+			backoff_us = PANTHOR_SCMI_BACKOFF_MAX_US;
+		pdevfreq->backoff_until = ktime_add_us(now, backoff_us);
+
+		drm_warn(&ptdev->base,
+			 "GPU DVFS: SCMI error %d (count=%u), backoff %lu ms\n",
+			 err, errcnt, backoff_us / 1000);
+
+		/* After 3+ consecutive errors, boost to safe mid-range frequency */
+		if (errcnt >= PANTHOR_SCMI_MAX_ERRORS && pdevfreq->safe_freq &&
+		    pdevfreq->last_set_freq != pdevfreq->safe_freq) {
+			spin_unlock_irqrestore(&pdevfreq->lock, irqflags);
+
+			drm_info(&ptdev->base,
+				 "GPU DVFS: boosting to safe freq %lu MHz\n",
+				 pdevfreq->safe_freq / 1000000);
+			err = panthor_devfreq_scmi_set_freq(dev,
+						       pdevfreq->safe_freq);
+
+			spin_lock_irqsave(&pdevfreq->lock, irqflags);
+			if (!err) {
+				pdevfreq->last_set_freq = pdevfreq->safe_freq;
+				pdevfreq->last_set_time = ktime_get();
+			}
+		}
+	}
+
+	spin_unlock_irqrestore(&pdevfreq->lock, irqflags);
+
+	/* Always return 0 -- errors cause devfreq to spam retries */
+	return 0;
 }
 
 static void panthor_devfreq_reset(struct panthor_devfreq *pdevfreq)
@@ -122,6 +262,100 @@ static int panthor_devfreq_get_cur_freq(struct device *dev, unsigned long *freq)
 	return 0;
 }
 
+/*
+ * panthor_devfreq_scmi_init() -- Try to set up DVFS via SCMI perf domain.
+ *
+ * Under DT: find the "perf" domain's virtual device, read OPPs from it, copy
+ * them to the main device, route frequency changes through it.
+ *
+ * Under ACPI: attach the GPU device directly to the SCMI perf genpd (looked
+ * up by firmware name). The genpd's attach_dev callback populates OPPs on
+ * the main device directly.
+ *
+ * Return: number of OPPs added, 0 if no perf domain found, negative on error.
+ */
+static int panthor_devfreq_scmi_init(struct panthor_device *ptdev,
+				     struct panthor_devfreq *pdevfreq)
+{
+	struct device *dev = ptdev->base.dev;
+	struct device *opp_dev = NULL;
+	struct dev_pm_opp *opp;
+	unsigned long freq;
+	int count, i, ret;
+
+	if (IS_ENABLED(CONFIG_OF) && dev->of_node) {
+		int index;
+
+		index = of_property_match_string(dev->of_node,
+						 "power-domain-names", "perf");
+		if (index < 0 || index >= ARRAY_SIZE(ptdev->pm_domain_devs))
+			return 0;
+
+		opp_dev = ptdev->pm_domain_devs[index];
+		if (!opp_dev)
+			return 0;
+
+		/* Copy OPPs from virtual device to main device */
+		count = dev_pm_opp_get_opp_count(opp_dev);
+		if (count <= 0)
+			return 0;
+
+		for (i = 0, freq = 0; ; i++, freq++) {
+			opp = dev_pm_opp_find_freq_ceil(opp_dev, &freq);
+			if (IS_ERR(opp))
+				break;
+			dev_pm_opp_put(opp);
+
+			ret = dev_pm_opp_add(dev, freq, 0);
+			if (ret) {
+				drm_warn(&ptdev->base,
+					 "Failed to add OPP %lu Hz: %d\n",
+					 freq, ret);
+				break;
+			}
+		}
+
+		if (i == 0)
+			return 0;
+	} else if (IS_ENABLED(CONFIG_ACPI)) {
+		struct generic_pm_domain *perf_genpd;
+
+		perf_genpd = pm_genpd_lookup_by_name("gpu_core");
+		if (!perf_genpd) {
+			drm_dbg(&ptdev->base,
+				"GPU DVFS: gpu_core genpd not found\n");
+			return 0;
+		}
+
+		ret = pm_genpd_add_device(perf_genpd, dev);
+		if (ret) {
+			drm_warn(&ptdev->base,
+				 "Failed to attach SCMI perf domain: %d\n",
+				 ret);
+			return 0;
+		}
+
+		count = dev_pm_opp_get_opp_count(dev);
+		if (count <= 0) {
+			pm_genpd_remove_device(dev);
+			return 0;
+		}
+
+		/* Main device IS the OPP device under ACPI */
+		opp_dev = dev;
+	} else {
+		return 0;
+	}
+
+	pdevfreq->opp_dev = opp_dev;
+
+	drm_dbg(&ptdev->base,
+		"GPU DVFS: %d OPPs from SCMI perf domain\n",
+		dev_pm_opp_get_opp_count(dev));
+
+	return dev_pm_opp_get_opp_count(dev);
+}
+
 static struct devfreq_dev_profile panthor_devfreq_profile = {
 	.timer = DEVFREQ_TIMER_DELAYED,
 	.polling_ms = 50, /* ~3 frames */
@@ -153,6 +387,15 @@ int panthor_devfreq_init(struct panthor_device *ptdev)
 		return -ENOMEM;
 
 	ptdev->devfreq = pdevfreq;
+
+	/*
+	 * On platforms with a named "perf" power domain (SCMI DVFS), the
+	 * platform bus won't auto-attach it when multiple power domains are
+	 * present. Try to attach explicitly and populate OPPs from firmware.
+	 */
+	ret = panthor_devfreq_scmi_init(ptdev, pdevfreq);
+	if (ret < 0)
+		return ret;
 
 	/*
 	 * The power domain associated with the GPU may have already added an
@@ -240,6 +483,33 @@ int panthor_devfreq_init(struct panthor_device *ptdev)
 	dev_pm_opp_put(opp);
 
 	/*
+	 * For SCMI platforms, compute a safe mid-range frequency for error
+	 * recovery and increase the polling interval to match our rate limit.
+	 */
+	if (pdevfreq->opp_dev) {
+		unsigned long min_f = 0, max_f = ULONG_MAX, mid, safe;
+		struct dev_pm_opp *opp_tmp;
+
+		opp_tmp = dev_pm_opp_find_freq_ceil(dev, &min_f);
+		if (!IS_ERR(opp_tmp)) {
+			dev_pm_opp_put(opp_tmp);
+			opp_tmp = dev_pm_opp_find_freq_floor(dev, &max_f);
+			if (!IS_ERR(opp_tmp)) {
+				dev_pm_opp_put(opp_tmp);
+				mid = min_f + (max_f - min_f) / 2;
+				safe = mid;
+				opp_tmp = dev_pm_opp_find_freq_ceil(dev, &safe);
+				if (!IS_ERR(opp_tmp)) {
+					pdevfreq->safe_freq = safe;
+					dev_pm_opp_put(opp_tmp);
+				}
+			}
+		}
+
+		panthor_devfreq_profile.polling_ms = 100;
+	}
+
+	/*
 	 * Setup default thresholds for the simple_ondemand governor.
 	 * The values are chosen based on experiments.
 	 */
@@ -271,6 +541,12 @@ void panthor_devfreq_resume(struct panthor_device *ptdev)
 		return;
 
 	panthor_devfreq_reset(pdevfreq);
+
+	/* Clear SCMI rate-limiting state on resume */
+	pdevfreq->last_set_freq = 0;
+	pdevfreq->last_set_time = 0;
+	pdevfreq->scmi_err_count = 0;
+	pdevfreq->backoff_until = 0;
 
 	drm_WARN_ON(&ptdev->base, devfreq_resume_device(pdevfreq->devfreq));
 }

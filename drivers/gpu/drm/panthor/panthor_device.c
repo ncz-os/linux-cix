@@ -4,8 +4,10 @@
 /* Copyright 2023 Collabora ltd. */
 /* Copyright 2025 ARM Limited. All rights reserved. */
 
+#include <linux/acpi.h>
 #include <linux/clk.h>
 #include <linux/mm.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/pm_domain.h>
 #include <linux/pm_runtime.h>
@@ -59,6 +61,94 @@ static int panthor_init_power(struct device *dev)
 		return 0;
 
 	return devm_pm_domain_attach_list(dev, NULL, &pd_list);
+}
+
+/*
+ * CIX Sky1 detection. Sky1's Mali-G720 GPU is "arm,mali-valhall" under DT
+ * (the BSP DT node uses this older compatible, no -csf suffix) or
+ * "CIXH5000" under ACPI.
+ */
+bool panthor_is_sky1(struct panthor_device *ptdev)
+{
+	struct device *dev = ptdev->base.dev;
+
+	if (IS_ENABLED(CONFIG_OF) && dev->of_node &&
+	    of_device_is_compatible(dev->of_node, "arm,mali-valhall"))
+		return true;
+
+	if (IS_ENABLED(CONFIG_ACPI) &&
+	    acpi_dev_hid_uid_match(ACPI_COMPANION(dev), "CIXH5000", NULL))
+		return true;
+
+	return false;
+}
+
+/*
+ * Attach every pm-domain explicitly.
+ *
+ * Mainline panthor_init_power() only attaches the single power-domain
+ * that platform_device adds via the "power-domains" property. On the
+ * SCMI-perf-domain path we need an explicit attach for each domain in
+ * the DT's "power-domain-names" (perf + pd_gpu). Returns 0 on success
+ * or no-op when single-domain.
+ */
+int panthor_pm_domain_init(struct panthor_device *ptdev)
+{
+	struct device *dev = ptdev->base.dev;
+	int num_domains, i, err;
+
+	if (!IS_ENABLED(CONFIG_OF) || !dev->of_node)
+		return 0;
+
+	num_domains = of_count_phandle_with_args(dev->of_node,
+						 "power-domains",
+						 "#power-domain-cells");
+	if (num_domains < 2)
+		return 0;
+
+	if (WARN_ON(num_domains > ARRAY_SIZE(ptdev->pm_domain_devs)))
+		return -EINVAL;
+
+	for (i = 0; i < num_domains; i++) {
+		ptdev->pm_domain_devs[i] =
+			dev_pm_domain_attach_by_id(dev, i);
+		if (IS_ERR_OR_NULL(ptdev->pm_domain_devs[i])) {
+			err = PTR_ERR(ptdev->pm_domain_devs[i]) ? : -ENODATA;
+			ptdev->pm_domain_devs[i] = NULL;
+			dev_err(dev, "failed to attach pm-domain %d: %d\n",
+				i, err);
+			return err;
+		}
+
+		ptdev->pm_domain_links[i] =
+			device_link_add(dev, ptdev->pm_domain_devs[i],
+					DL_FLAG_PM_RUNTIME | DL_FLAG_STATELESS |
+					DL_FLAG_RPM_ACTIVE);
+		if (!ptdev->pm_domain_links[i]) {
+			dev_err(ptdev->pm_domain_devs[i],
+				"adding device link failed\n");
+			return -ENODEV;
+		}
+	}
+
+	return 0;
+}
+
+void panthor_pm_domain_fini(struct panthor_device *ptdev)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(ptdev->pm_domain_devs); i++) {
+		if (!ptdev->pm_domain_devs[i])
+			break;
+
+		if (ptdev->pm_domain_links[i])
+			device_link_del(ptdev->pm_domain_links[i]);
+
+		dev_pm_domain_detach(ptdev->pm_domain_devs[i], true);
+		ptdev->pm_domain_devs[i] = NULL;
+		ptdev->pm_domain_links[i] = NULL;
+	}
 }
 
 void panthor_device_unplug(struct panthor_device *ptdev)
@@ -223,36 +313,70 @@ int panthor_device_init(struct panthor_device *ptdev)
 	if (ret)
 		return ret;
 
+	ret = panthor_pm_domain_init(ptdev);
+	if (ret) {
+		drm_err(&ptdev->base, "init pm-domains failed, ret=%d", ret);
+		return ret;
+	}
+
 	ret = panthor_init_power(ptdev->base.dev);
 	if (ret < 0) {
 		drm_err(&ptdev->base, "init power domains failed, ret=%d", ret);
+		panthor_pm_domain_fini(ptdev);
 		return ret;
 	}
 
 	ret = panthor_devfreq_init(ptdev);
-	if (ret)
+	if (ret) {
+		panthor_pm_domain_fini(ptdev);
 		return ret;
+	}
 
-	ptdev->iomem = devm_platform_get_and_ioremap_resource(to_platform_device(ptdev->base.dev),
-							      0, &res);
-	if (IS_ERR(ptdev->iomem))
+	/*
+	 * Sky1 has two iomem regions: resource[0] = RCSU control,
+	 * resource[1] = GPU primary register block. Other platforms
+	 * have one iomem at resource[0].
+	 */
+	if (panthor_is_sky1(ptdev)) {
+		ptdev->sky1_rcsu_reg = devm_platform_ioremap_resource(
+				to_platform_device(ptdev->base.dev), 0);
+		if (IS_ERR(ptdev->sky1_rcsu_reg)) {
+			panthor_pm_domain_fini(ptdev);
+			return PTR_ERR(ptdev->sky1_rcsu_reg);
+		}
+
+		ptdev->iomem = devm_platform_get_and_ioremap_resource(
+				to_platform_device(ptdev->base.dev), 1, &res);
+	} else {
+		ptdev->iomem = devm_platform_get_and_ioremap_resource(
+				to_platform_device(ptdev->base.dev), 0, &res);
+	}
+	if (IS_ERR(ptdev->iomem)) {
+		panthor_pm_domain_fini(ptdev);
 		return PTR_ERR(ptdev->iomem);
+	}
 
 	ptdev->phys_addr = res->start;
 
 	ret = devm_pm_runtime_enable(ptdev->base.dev);
-	if (ret)
+	if (ret) {
+		panthor_pm_domain_fini(ptdev);
 		return ret;
+	}
 
 	ret = pm_runtime_resume_and_get(ptdev->base.dev);
-	if (ret)
+	if (ret) {
+		panthor_pm_domain_fini(ptdev);
 		return ret;
+	}
 
 	/* If PM is disabled, we need to call panthor_device_resume() manually. */
 	if (!IS_ENABLED(CONFIG_PM)) {
 		ret = panthor_device_resume(ptdev->base.dev);
-		if (ret)
+		if (ret) {
+			panthor_pm_domain_fini(ptdev);
 			return ret;
+		}
 	}
 
 	ret = panthor_hw_init(ptdev);
@@ -324,6 +448,9 @@ err_unplug_pwr:
 
 err_rpm_put:
 	pm_runtime_put_sync_suspend(ptdev->base.dev);
+
+	panthor_pm_domain_fini(ptdev);
+
 	return ret;
 }
 
