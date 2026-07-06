@@ -6,8 +6,11 @@
  * Author: Jerry Zhu <jerry.zhu@cixtech.com>
  */
 
+#include <linux/acpi.h>
 #include <linux/delay.h>
+#include <linux/io.h>
 #include <linux/mfd/syscon.h>
+#include <linux/property.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
@@ -328,13 +331,35 @@ static int sky1_reset_probe(struct platform_device *pdev)
 	if (!sky1src)
 		return -ENOMEM;
 
-	variant = of_device_get_match_data(dev);
+	variant = device_get_match_data(dev);
+	if (!variant)
+		return -ENODEV;
 
-	sky1src->regmap = device_node_to_regmap(dev->of_node);
-	if (IS_ERR(sky1src->regmap)) {
+	if (has_acpi_companion(dev)) {
+		static const struct regmap_config config = {
+			.reg_bits = 32,
+			.val_bits = 32,
+			.reg_stride = 4,
+			.name = "src",
+		};
+		struct resource *res;
+		void __iomem *base;
+
+		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+		if (!res)
+			return -ENOENT;
+
+		base = devm_ioremap(dev, res->start, resource_size(res));
+		if (!base)
+			return -ENOMEM;
+
+		sky1src->regmap = devm_regmap_init_mmio(dev, base, &config);
+	} else {
+		sky1src->regmap = device_node_to_regmap(dev->of_node);
+	}
+	if (IS_ERR(sky1src->regmap))
 		return dev_err_probe(dev, PTR_ERR(sky1src->regmap),
 				     "Unable to get sky1-src regmap");
-	}
 
 	sky1src->signals = variant->signals;
 	sky1src->rcdev.owner     = THIS_MODULE;
@@ -353,14 +378,33 @@ static const struct of_device_id sky1_sysreg_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, sky1_sysreg_of_match);
 
+static const struct acpi_device_id sky1_reset_acpi_match[] = {
+	{ "CIXHA020", .driver_data = (kernel_ulong_t)&variant_sky1 },
+	{ "CIXHA021", .driver_data = (kernel_ulong_t)&variant_sky1_fch },
+	{ }
+};
+MODULE_DEVICE_TABLE(acpi, sky1_reset_acpi_match);
+
 static struct platform_driver sky1_reset_driver = {
 	.probe	= sky1_reset_probe,
 	.driver = {
 		.name		= "cix,sky1-rst",
 		.of_match_table = sky1_sysreg_of_match,
+		.acpi_match_table = ACPI_PTR(sky1_reset_acpi_match),
 	},
 };
-module_platform_driver(sky1_reset_driver)
+
+static int __init reset_sky1_init(void)
+{
+	return platform_driver_register(&sky1_reset_driver);
+}
+subsys_initcall(reset_sky1_init);
+
+static void __exit reset_sky1_exit(void)
+{
+	platform_driver_unregister(&sky1_reset_driver);
+}
+module_exit(reset_sky1_exit);
 
 MODULE_AUTHOR("Jerry Zhu <jerry.zhu@cixtech.com>");
 MODULE_DESCRIPTION("Cix Sky1 reset driver");
