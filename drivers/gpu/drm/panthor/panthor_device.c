@@ -32,6 +32,9 @@
 static int panthor_clk_init(struct panthor_device *ptdev)
 {
 	ptdev->clks.core = devm_clk_get(ptdev->base.dev, NULL);
+	if (IS_ERR(ptdev->clks.core) && has_acpi_companion(ptdev->base.dev) &&
+	    acpi_dev_hid_match(ACPI_COMPANION(ptdev->base.dev), "CIXH5000"))
+		ptdev->clks.core = devm_clk_get(ptdev->base.dev, "gpu_clk_core");
 	if (IS_ERR(ptdev->clks.core))
 		return dev_err_probe(ptdev->base.dev,
 				     PTR_ERR(ptdev->clks.core),
