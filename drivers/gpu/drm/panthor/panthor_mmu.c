@@ -13,6 +13,7 @@
 #include <drm/gpu_scheduler.h>
 #include <drm/panthor_drm.h>
 
+#include <linux/acpi.h>
 #include <linux/atomic.h>
 #include <linux/bitfield.h>
 #include <linux/delay.h>
@@ -3259,6 +3260,11 @@ int panthor_mmu_init(struct panthor_device *ptdev)
 	ptdev->mmu = mmu;
 
 	irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "mmu");
+	if (IS_ENABLED(CONFIG_ACPI) && has_acpi_companion(ptdev->base.dev)) {
+		irq = platform_get_irq(to_platform_device(ptdev->base.dev), 1);
+	} else if (irq <= 0) {
+		irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "MMU");
+	}
 	if (irq <= 0)
 		return -ENODEV;
 
