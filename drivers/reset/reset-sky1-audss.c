@@ -33,6 +33,9 @@ static int sky1_audss_reset_update(struct sky1_audss_reset *rst,
 	unsigned int bit = BIT(id);
 	unsigned int val = assert ? 0 : bit;
 
+	if (!rst->regmap)
+		return -ENODEV;
+
 	return regmap_update_bits(rst->regmap, SKY1_AUDSS_SW_RST, bit, val);
 }
 
@@ -81,6 +84,9 @@ static int sky1_audss_reset_status(struct reset_controller_dev *rcdev,
 	unsigned int val;
 	int ret;
 
+	if (!rst->regmap)
+		return -ENODEV;
+
 	ret = regmap_read(rst->regmap, SKY1_AUDSS_SW_RST, &val);
 	if (ret)
 		return ret;
@@ -120,8 +126,13 @@ static int sky1_audss_reset_probe(struct platform_device *pdev)
 			if (syscon_dev) {
 				regmap = dev_get_regmap(syscon_dev, NULL);
 				put_device(syscon_dev);
-				if (!regmap)
-					regmap = ERR_PTR(-EPROBE_DEFER);
+				/*
+				 * NCZ patch 9014b forward-port: don't force EPROBE_DEFER
+				 * if the regmap isn't ready yet. Continue with NULL --
+				 * sky1_audss_reset_update()/_status() below guard against
+				 * it. The regmap becomes available once the audss_cru
+				 * syscon device finishes its own probe.
+				 */
 			}
 		}
 	}
@@ -129,6 +140,8 @@ static int sky1_audss_reset_probe(struct platform_device *pdev)
 	if (IS_ERR(regmap))
 		return dev_err_probe(dev, PTR_ERR(regmap),
 				     "failed to get parent regmap\n");
+	if (!regmap)
+		dev_warn(dev, "parent regmap not ready, continuing without it\n");
 
 	rst = devm_kzalloc(dev, sizeof(*rst), GFP_KERNEL);
 	if (!rst)
