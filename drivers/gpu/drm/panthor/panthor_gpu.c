@@ -3,6 +3,7 @@
 /* Copyright 2019 Linaro, Ltd., Rob Herring <robh@kernel.org> */
 /* Copyright 2019 Collabora ltd. */
 
+#include <linux/acpi.h>
 #include <linux/bitfield.h>
 #include <linux/bitmap.h>
 #include <linux/delay.h>
@@ -10,6 +11,7 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/iopoll.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 
@@ -166,6 +168,11 @@ int panthor_gpu_init(struct panthor_device *ptdev)
 		return ret;
 
 	irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "gpu");
+	if (IS_ENABLED(CONFIG_ACPI) && has_acpi_companion(ptdev->base.dev)) {
+		irq = platform_get_irq(to_platform_device(ptdev->base.dev), 2);
+	} else if (irq < 0) {
+		irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "GPU");
+	}
 	if (irq < 0)
 		return irq;
 
@@ -313,6 +320,26 @@ int panthor_gpu_l2_power_on(struct panthor_device *ptdev)
 	/* Set the desired coherency mode and L2 config before the power up of L2 */
 	panthor_gpu_coherency_set(ptdev);
 	panthor_gpu_l2_config_set(ptdev);
+
+	/* CIX Sky1 needs special PHBA setup before L2 activation */
+	if (panthor_is_sky1(ptdev)) {
+		gpu_write(ptdev->gpu->iomem, GPU_SYSC_PBHA_OVERRIDE(3), 0x22000000);
+		gpu_write(ptdev->gpu->iomem, GPU_SYSC_ALLOC(0), 0x00230000);
+		gpu_write(ptdev->gpu->iomem, GPU_SYSC_ALLOC(1), 0x00000023);
+		gpu_write(ptdev->gpu->iomem, GPU_SYSC_ALLOC(2), 0x00000000);
+		gpu_write(ptdev->gpu->iomem, GPU_SYSC_ALLOC(3), 0x00000000);
+		gpu_write(ptdev->gpu->iomem, GPU_SYSC_ALLOC(4), 0x00523222);
+		gpu_write(ptdev->gpu->iomem, GPU_SYSC_ALLOC(5), 0x00523200);
+		gpu_write(ptdev->gpu->iomem, GPU_SYSC_ALLOC(6), 0x00000022);
+		gpu_write(ptdev->gpu->iomem, GPU_SYSC_ALLOC(7), 0x00000032);
+
+		/* Required for LS_MEM_* related counters */
+		gpu_write(ptdev->gpu->iomem, 0x306C, 0xFFFFFFFF);
+		gpu_write(ptdev->gpu->iomem, 0x3070, 0xFFFFFFFF);
+		gpu_write(ptdev->gpu->iomem, 0x307C, 0xFFFFFFFF);
+		gpu_write(ptdev->gpu->iomem, 0x3074, 0xFFFFFFFF);
+		gpu_write(ptdev->gpu->iomem, 0x3068, 0x1);
+	}
 
 	return panthor_gpu_power_on(ptdev, L2, 1, 20000);
 }
