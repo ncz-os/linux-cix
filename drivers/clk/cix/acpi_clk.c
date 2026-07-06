@@ -14,6 +14,7 @@
 #include <linux/acpi.h>
 #include <linux/completion.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/sysfs.h>
 #include <linux/version.h>
 #include "acpi_clk.h"
@@ -491,6 +492,21 @@ static acpi_status acpi_bus_clk_scan(acpi_handle handle, u32 level,
 static int cix_acpi_clk_probe(struct platform_device *pdev)
 {
 	acpi_status status;
+
+	/*
+	 * NCZ patch 9010 forward-port: mark the device RPM_ACTIVE and run
+	 * _PS0 before the ACPI namespace walk, so the post-probe
+	 * pm_runtime_resume() the PM core issues automatically becomes a
+	 * no-op instead of touching power-domain registers that are still
+	 * settling via the SCMI/clock tree (observed SError on real
+	 * hardware without this). Do NOT call pm_runtime_enable() here --
+	 * the platform core does that automatically after probe returns.
+	 */
+	if (has_acpi_companion(&pdev->dev)) {
+		pm_runtime_set_active(&pdev->dev);
+		pm_runtime_get_noresume(&pdev->dev);
+		acpi_device_set_power(ACPI_COMPANION(&pdev->dev), ACPI_STATE_D0);
+	}
 
 	status = acpi_walk_namespace(ACPI_TYPE_ANY, ACPI_ROOT_OBJECT,
 				ACPI_UINT32_MAX, acpi_bus_clk_scan,
