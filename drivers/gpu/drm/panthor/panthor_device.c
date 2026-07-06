@@ -316,6 +316,26 @@ int panthor_device_init(struct panthor_device *ptdev)
 	if (ret)
 		return ret;
 
+	/*
+	 * NCZ CIX Sky1 fix: explicitly enable the core clock here rather than
+	 * relying on pm_runtime_resume_and_get() below to do it via the
+	 * runtime_resume callback. On this platform, __pm_runtime_resume() is
+	 * gated (NCZ patches 0089/0090) until a late_initcall marks the system
+	 * ready, to stop OTHER drivers' premature deferred-probe resumes from
+	 * touching not-yet-clocked hardware. But that gate also silently
+	 * no-ops THIS device's own first (synchronous, in-probe) resume, so
+	 * panthor_hw_init() below was running against an unprepared/disabled
+	 * core clock (reported rate=0) and immediately hit an SError touching
+	 * GPU MMIO. Confirmed on real Sky1 (.66) hardware. clk_prepare_enable
+	 * is refcounted, so this does not conflict with the later resume path
+	 * once cix_system_ready flips true and genuinely runs.
+	 */
+	if (!IS_ERR_OR_NULL(ptdev->clks.core)) {
+		ret = clk_prepare_enable(ptdev->clks.core);
+		if (ret)
+			return ret;
+	}
+
 	ret = panthor_pm_domain_init(ptdev);
 	if (ret) {
 		drm_err(&ptdev->base, "init pm-domains failed, ret=%d", ret);
