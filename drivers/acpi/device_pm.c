@@ -1402,13 +1402,32 @@ static struct dev_pm_domain acpi_general_pm_domain = {
  * Callers must ensure proper synchronization of this function with power
  * management callbacks.
  */
+/*
+ * NCZ CIX Sky1 boot fix (patch 9013): skip acpi_remove_pm_notifier in
+ * the probe-failure cleanup path.
+ *
+ * acpi_remove_pm_notifier calls synchronize_srcu which sleeps. If called
+ * from deferred_probe_work_func (which runs with preemption disabled after
+ * a probe failure), the sleep triggers __schedule_bug and the kernel
+ * panics.
+ *
+ * The notifier is safely cleaned up by acpi_device_remove() ->
+ * acpi_device_remove_notify_handler() in drivers/acpi/bus.c when the
+ * device is actually destroyed. Skipping it here just delays the cleanup
+ * to the proper teardown path which runs in sleepable context.
+ */
 static void acpi_dev_pm_detach(struct device *dev, bool power_off)
 {
 	struct acpi_device *adev = ACPI_COMPANION(dev);
 
 	if (adev && dev->pm_domain == &acpi_general_pm_domain) {
 		dev_pm_domain_set(dev, NULL);
-		acpi_remove_pm_notifier(adev);
+		/*
+		 * Skip acpi_remove_pm_notifier -- it sleeps (synchronize_srcu) and
+		 * we are often called from atomic context (probe failure cleanup).
+		 * The notifier is removed in acpi_device_remove() during actual
+		 * device teardown. See drivers/acpi/bus.c.
+		 */
 		if (power_off) {
 			/*
 			 * If the device's PM QoS resume latency limit or flags
