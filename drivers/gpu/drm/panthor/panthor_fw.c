@@ -5,6 +5,7 @@
 #include <asm/arch_timer.h>
 #endif
 
+#include <linux/acpi.h>
 #include <linux/clk.h>
 #include <linux/dma-mapping.h>
 #include <linux/firmware.h>
@@ -1494,6 +1495,11 @@ int panthor_fw_init(struct panthor_device *ptdev)
 	INIT_DELAYED_WORK(&fw->watchdog.ping_work, panthor_fw_ping_work);
 
 	irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "job");
+	if (IS_ENABLED(CONFIG_ACPI) && has_acpi_companion(ptdev->base.dev)) {
+		irq = platform_get_irq(to_platform_device(ptdev->base.dev), 0);
+	} else if (irq <= 0) {
+		irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "JOB");
+	}
 	if (irq <= 0)
 		return -ENODEV;
 

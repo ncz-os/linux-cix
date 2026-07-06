@@ -6,9 +6,11 @@
 #ifndef __PANTHOR_DEVICE_H__
 #define __PANTHOR_DEVICE_H__
 
+#include <linux/acpi.h>
 #include <linux/atomic.h>
 #include <linux/io-pgtable.h>
 #include <linux/regulator/consumer.h>
+#include <linux/reset.h>
 #include <linux/pm_runtime.h>
 #include <linux/sched.h>
 #include <linux/spinlock.h>
@@ -33,6 +35,11 @@ struct panthor_perfcnt;
 struct panthor_pwr;
 struct panthor_vm;
 struct panthor_vm_pool;
+struct generic_pm_domain;
+
+bool panthor_is_sky1(struct panthor_device *ptdev);
+int panthor_pm_domain_init(struct panthor_device *ptdev);
+void panthor_pm_domain_fini(struct panthor_device *ptdev);
 
 /**
  * struct panthor_soc_data - Panthor SoC Data
@@ -140,6 +147,18 @@ struct panthor_device {
 	/** @iomem: CPU mapping of the IOMEM region. */
 	void __iomem *iomem;
 
+	/** @sky1_rcsu_reg: Sky1 RCSU register mapping (optional, resource 0). */
+	void __iomem *sky1_rcsu_reg;
+
+	/** @pm_domain_devs: PM domain device instances, when the device has more than one. */
+	struct device *pm_domain_devs[2];
+
+	/** @pm_domain_links: PM domain device links, when the device has more than one. */
+	struct device_link *pm_domain_links[2];
+
+	/** @gpu_reset: GPU reset control (optional, Sky1). */
+	struct reset_control *gpu_reset;
+
 	/** @clks: GPU clocks. */
 	struct {
 		/** @core: Core clock. */
@@ -150,6 +169,9 @@ struct panthor_device {
 
 		/** @coregroup: Core group clock. This clock is optional. */
 		struct clk *coregroup;
+
+		/** @backup: Sky1 backup clocks (200M, 400M). Optional. */
+		struct clk *backup[2];
 	} clks;
 
 	/** @coherent: True if the CPU/GPU are memory coherent. */
