@@ -896,12 +896,21 @@ static int sky1_audss_clks_get(struct sky1_audss_clks_priv *priv)
 {
 	int i;
 
+	/*
+	 * NCZ CIX Sky1 boot fix (patch 9014 forward-port): don't defer if a
+	 * parent clock is not yet available. Under ACPI boot the clk-sky1-acpi
+	 * (acpi_clk.c) clkdev entries are not always visible to this probe at
+	 * the right time, causing indefinite -EPROBE_DEFER. Since audss-clk is
+	 * a supplier for CIXH2030 (PCIe) and CIXH1006 (DMA), that stalls NVMe
+	 * enumeration and rootfs never mounts. Warn but continue with NULL;
+	 * enable/disable/set_rate below all skip NULL/ERR entries.
+	 */
 	for (i = 0; i < SKY1_AUDSS_CLKS_NUM; i++) {
 		priv->clks[i] = devm_clk_get(priv->dev, sky1_audss_clks_names[i]);
 		if (IS_ERR(priv->clks[i])) {
-			dev_err(priv->dev, "failed to get clock %s\n",
-				sky1_audss_clks_names[i]);
-			return PTR_ERR(priv->clks[i]);
+			dev_warn(priv->dev, "clock %s not ready (%ld), continuing without it\n",
+				 sky1_audss_clks_names[i], PTR_ERR(priv->clks[i]));
+			priv->clks[i] = NULL;
 		}
 	}
 
@@ -913,6 +922,8 @@ static int sky1_audss_clks_enable(struct sky1_audss_clks_priv *priv)
 	int i, err;
 
 	for (i = 0; i < SKY1_AUDSS_CLKS_NUM; i++) {
+		if (IS_ERR_OR_NULL(priv->clks[i]))
+			continue;
 		err = clk_prepare_enable(priv->clks[i]);
 		if (err) {
 			dev_err(priv->dev, "failed to enable clock %s\n",
@@ -924,8 +935,11 @@ static int sky1_audss_clks_enable(struct sky1_audss_clks_priv *priv)
 	return 0;
 
 err_clks:
-	while (--i >= 0)
+	while (--i >= 0) {
+		if (IS_ERR_OR_NULL(priv->clks[i]))
+			continue;
 		clk_disable_unprepare(priv->clks[i]);
+	}
 
 	return err;
 }
@@ -934,8 +948,11 @@ static void sky1_audss_clks_disable(struct sky1_audss_clks_priv *priv)
 {
 	int i;
 
-	for(i = 0; i < SKY1_AUDSS_CLKS_NUM; i++)
+	for (i = 0; i < SKY1_AUDSS_CLKS_NUM; i++) {
+		if (IS_ERR_OR_NULL(priv->clks[i]))
+			continue;
 		clk_disable_unprepare(priv->clks[i]);
+	}
 }
 
 static int sky1_audss_clks_set_rate(struct sky1_audss_clks_priv *priv)
@@ -943,12 +960,12 @@ static int sky1_audss_clks_set_rate(struct sky1_audss_clks_priv *priv)
 	int i, err;
 
 	for (i = 0; i < SKY1_AUDSS_CLKS_NUM; i++) {
+		if (IS_ERR_OR_NULL(priv->clks[i]))
+			continue;
 		err = clk_set_rate(priv->clks[i], clk_rate_default[i]);
-		if (err) {
-			dev_err(priv->dev, "failed to set clock rate %s\n",
-				sky1_audss_clks_names[i]);
-			return err;
-		}
+		if (err)
+			dev_warn(priv->dev, "failed to set clock rate %s\n",
+				 sky1_audss_clks_names[i]);
 	}
 
 	return 0;
@@ -1052,21 +1069,22 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 
 	sky1_audss_clks_get_rate(priv);
 
-	/* reset audio subsystem */
-	rst_noc = devm_reset_control_get(dev, "noc");
+	/* reset audio subsystem (NCZ patch 9014: not fatal if missing) */
+	rst_noc = devm_reset_control_get_optional_exclusive(dev, "noc");
 	if (IS_ERR(rst_noc)) {
-		dev_err(dev, "failed to get noc reset\n");
-		ret = PTR_ERR(rst_noc);
-		goto fail_reset;
+		dev_warn(dev, "noc reset not ready, continuing without it\n");
+		rst_noc = NULL;
 	}
 	priv->rst_noc = rst_noc;
 
-	/* reset */
-	reset_control_assert(rst_noc);
-	usleep_range(1, 2);
+	if (rst_noc) {
+		/* reset */
+		reset_control_assert(rst_noc);
+		usleep_range(1, 2);
 
-	/* release reset */
-	reset_control_deassert(rst_noc);
+		/* release reset */
+		reset_control_deassert(rst_noc);
+	}
 
 	rcsu_base = ioremap(SKY1_AUDSS_RCSU_ADDR, SKY1_AUDSS_RCSU_LEN);
 	priv->rcsu_base = rcsu_base;
