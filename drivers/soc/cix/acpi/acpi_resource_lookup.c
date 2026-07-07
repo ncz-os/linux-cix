@@ -538,8 +538,12 @@ static int acpi_resource_lookup_probe(struct platform_device *pdev)
 	return 0;
 }
 
+/*
+ * NCZ: CIXA1019 is owned by cix-acpi-resource-lookup-v1 (BIOS 1.0
+ * bridge); this 2026q2 walker runs before the Sky1 PCIe scan-handler
+ * devices exist and its lookups miss them, so leave it unmatched.
+ */
 static const struct acpi_device_id acpi_resource_lookup_match[] = {
-	{ "CIXA1019" },
 	{},
 };
 MODULE_DEVICE_TABLE(acpi, acpi_resource_lookup_match);
