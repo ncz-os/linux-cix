@@ -53,6 +53,19 @@ static int panthor_clk_init(struct panthor_device *ptdev)
 				     "get 'coregroup' clock failed");
 
 	drm_info(&ptdev->base, "clock rate = %lu\n", clk_get_rate(ptdev->clks.core));
+
+	/*
+	 * Sky1 (ACPI): if the SCMI gpu_core clock has not been registered
+	 * yet, devm_clk_get_optional() above returned NULL and the GPU is
+	 * unclocked -- touching its registers raises an SError.  Defer
+	 * until the clock provider shows up instead of panicking the boot.
+	 */
+	if (has_acpi_companion(ptdev->base.dev) &&
+	    acpi_dev_hid_match(ACPI_COMPANION(ptdev->base.dev), "CIXH5000") &&
+	    (!ptdev->clks.core || !clk_get_rate(ptdev->clks.core)))
+		return dev_err_probe(ptdev->base.dev, -EPROBE_DEFER,
+				     "Sky1: gpu core clock not ready, deferring probe");
+
 	return 0;
 }
 
