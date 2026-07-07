@@ -1494,10 +1494,11 @@ static int cix_udphy_probe(struct platform_device *pdev)
 	}
 
 	udphy->apb_clk = devm_clk_get(dev, "pclk");
-	if (IS_ERR(udphy->apb_clk)) {
-		dev_err(dev, "phy apb clock not found\n");
-		return PTR_ERR(udphy->apb_clk);
-	}
+	if (IS_ERR(udphy->apb_clk))
+		return dev_err_probe(dev,
+				     PTR_ERR(udphy->apb_clk) == -ENOENT ?
+				     -EPROBE_DEFER : PTR_ERR(udphy->apb_clk),
+				     "phy apb clock not found\n");
 
 	udphy->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(udphy->base))
