@@ -1835,7 +1835,10 @@ void arm_smmu_make_cdtable_ste(struct arm_smmu_ste *target,
 			 STRTAB_STE_1_S1STALLD :
 			 0) |
 		FIELD_PREP(STRTAB_STE_1_EATS,
-			   ats_enabled ? STRTAB_STE_1_EATS_TRANS : 0));
+			   (ats_enabled ||
+			    ((smmu->options & ARM_SMMU_OPT_PCIE_ATS_OVERRIDE) &&
+			     dev_is_pci(master->dev))) ?
+				STRTAB_STE_1_EATS_TRANS : 0));
 
 	if ((smmu->features & ARM_SMMU_FEAT_ATTR_TYPES_OVR) &&
 	    s1dss == STRTAB_STE_1_S1DSS_BYPASS)
@@ -1887,7 +1890,10 @@ void arm_smmu_make_s2_domain_ste(struct arm_smmu_ste *target,
 
 	target->data[1] = cpu_to_le64(
 		FIELD_PREP(STRTAB_STE_1_EATS,
-			   ats_enabled ? STRTAB_STE_1_EATS_TRANS : 0));
+			   (ats_enabled ||
+			    ((smmu->options & ARM_SMMU_OPT_PCIE_ATS_OVERRIDE) &&
+			     dev_is_pci(master->dev))) ?
+				STRTAB_STE_1_EATS_TRANS : 0));
 
 	if (pgtbl_cfg->quirks & IO_PGTABLE_QUIRK_ARM_S2FWB)
 		target->data[1] |= cpu_to_le64(STRTAB_STE_1_S2FWB);
@@ -5314,6 +5320,62 @@ static void __iomem *arm_smmu_ioremap(struct device *dev, resource_size_t start,
 	return devm_ioremap_resource(dev, &res);
 }
 
+/*
+ * CIX Sky1 SoC PCIe SMMU -- pre-install bypass STEs for PCIe root port
+ * and device SIDs under ACPI boot (ported from cix-sky1-next).
+ *
+ * Without these, PCIe devices already bus-mastering at SMMU reset
+ * (NVMe, NICs brought up by firmware) hit abort STEs -> C_BAD_STREAMID
+ * storms / DMA errors / boot wedge. Detect the Sky1 PCIe SMMU by its
+ * physical base and install bypass STEs for the known SIDs; also force
+ * EATS for PCIe masters (Sky1 DTI ATS Master sends translated TLPs even
+ * for non-ATS endpoints).
+ */
+#define CIX_SKY1_PCIE_SMMU_BASE	0x0b010000ULL
+
+static const u32 cix_sky1_pcie_boot_sids[] = {
+	0x0000, 0x0100,		/* PCIe X1_0 */
+	0x3000, 0x3100,		/* PCIe X1_1 */
+	0x6000, 0x6100,		/* PCIe X2 */
+	0x9000, 0x9100,		/* PCIe X4 */
+	0xc000, 0xc100,		/* PCIe X8 */
+};
+
+static void arm_smmu_acpi_install_bypass_ste(struct arm_smmu_device *smmu)
+{
+	struct platform_device *pdev = to_platform_device(smmu->dev);
+	struct resource *res;
+	unsigned int i, count = 0;
+
+	if (smmu->dev->of_node)
+		return;
+
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!res || res->start != CIX_SKY1_PCIE_SMMU_BASE)
+		return;
+
+	for (i = 0; i < ARRAY_SIZE(cix_sky1_pcie_boot_sids); i++) {
+		u32 sid = cix_sky1_pcie_boot_sids[i];
+
+		if (arm_smmu_init_sid_strtab(smmu, sid)) {
+			dev_err(smmu->dev,
+				"Sky1 PCIe boot SID(0x%x) bypass failed\n",
+				sid);
+			continue;
+		}
+
+		arm_smmu_make_bypass_ste(smmu,
+			arm_smmu_get_step_for_sid(smmu, sid));
+		count++;
+	}
+
+	smmu->options |= ARM_SMMU_OPT_PCIE_ATS_OVERRIDE;
+
+	dev_info(smmu->dev,
+		 "CIX Sky1 PCIe SMMU: %u bypass STEs installed, ATS override enabled\n",
+		 count);
+}
+
 static void arm_smmu_rmr_install_bypass_ste(struct arm_smmu_device *smmu)
 {
 	struct list_head rmr_list;
@@ -5498,6 +5560,7 @@ static int arm_smmu_device_probe(struct platform_device *pdev)
 
 	/* Check for RMRs and install bypass STEs if any */
 	arm_smmu_rmr_install_bypass_ste(smmu);
+	arm_smmu_acpi_install_bypass_ste(smmu);
 
 	/* Reset the device */
 	ret = arm_smmu_device_reset(smmu);
