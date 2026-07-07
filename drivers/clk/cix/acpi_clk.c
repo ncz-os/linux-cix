@@ -520,8 +520,14 @@ static void cix_acpi_clk_remove(struct platform_device *pdev)
 {
 }
 
+/*
+ * NCZ: CIXHA010 is claimed by clk-sky1-acpi (CLKT lookup-table bridge),
+ * which matches the description scheme the cixmini Sky1 UEFI (BIOS 1.0,
+ * 2026-03) actually provides. This 2026q2 walker maps nothing on that
+ * firmware and would silently squat the device, so it is left compiled
+ * but unmatched.
+ */
 static const struct acpi_device_id __maybe_unused cix_acpi_clk_match[] = {
-	{ "CIXHA010", 0 },
 	{},
 };
 MODULE_DEVICE_TABLE(acpi, cix_acpi_clk_match);
