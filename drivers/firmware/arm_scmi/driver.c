@@ -3366,6 +3366,35 @@ static int scmi_probe(struct platform_device *pdev)
 		scmi_create_protocol_devices(child, info, prot_id, NULL);
 	}
 
+	/*
+	 * ACPI: the SCMI node has no protocol child nodes carrying a
+	 * "reg" property, so the loop above activates nothing.  Fall
+	 * back to activating every protocol the firmware reports as
+	 * implemented so consumer drivers (clocks, perf, genpd, hwmon,
+	 * reset) get their scmi devices.  (CIX Sky1 / NCZ)
+	 */
+	if (is_acpi_node(np)) {
+		int prot_id;
+
+		for (prot_id = SCMI_PROTOCOL_BASE + 1;
+		     prot_id <= 0xFF; prot_id++) {
+			if (!scmi_is_protocol_implemented(handle, prot_id))
+				continue;
+			if (idr_find(&info->active_protocols, prot_id))
+				continue;
+
+			ret = idr_alloc(&info->active_protocols, (void *)np,
+					prot_id, prot_id + 1, GFP_KERNEL);
+			if (ret != prot_id)
+				continue;
+
+			fwnode_handle_get(np);
+			dev_info(dev, "ACPI: activating SCMI protocol 0x%x\n",
+				 prot_id);
+			scmi_create_protocol_devices(np, info, prot_id, NULL);
+		}
+	}
+
 	return 0;
 
 notification_exit:
