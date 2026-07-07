@@ -160,16 +160,30 @@ static int sky1_cixh2020_create_pdev(struct acpi_device *adev)
 static int sky1_acpi_scan_attach(struct acpi_device *adev,
 				 const struct acpi_device_id *id)
 {
-	if (!sky1_acpi_detected || !sky1_pcie_native)
+	if (!sky1_acpi_detected)
 		return 0;
 
 	if (!strcmp(id->id, "PNP0A08")) {
+		if (!sky1_pcie_native)
+			return 0; /* standard ACPI/ECAM host path */
 		dev_info(&adev->dev,
 			 "Sky1: blocking PNP0A08, CIXH2020 will handle\n");
 		return 1;
 	}
 
-	/* CIXH2020 — create platform device with filtered resources */
+	/*
+	 * CIXH2020: in standard mode the firmware-configured controller
+	 * must not be touched -- block platform device creation so the
+	 * vendor native driver cannot probe (its early controller reset
+	 * kills the live links). In native mode, create the filtered
+	 * platform device as usual.
+	 */
+	if (!sky1_pcie_native) {
+		dev_info(&adev->dev,
+			 "Sky1: blocking CIXH2020 (standard PCIe mode)\n");
+		return 1;
+	}
+
 	return sky1_cixh2020_create_pdev(adev);
 }
 
