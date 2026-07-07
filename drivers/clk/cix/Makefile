@@ -4,6 +4,7 @@
 obj-$(CONFIG_CLK_SKY1_AUDSS) += clk-sky1-audss.o
 obj-$(CONFIG_CIX_CLK_DEBUG) += cix-clk-debug.o
 
+obj-$(CONFIG_CIX_ACPI_CLK) += clk-sky1-acpi.o
 obj-$(CONFIG_CIX_ACPI_CLK) += acpi_clk.o
 obj-$(CONFIG_CIX_ACPI_CLK) += acpi_scmi_clk.o
 obj-$(CONFIG_COMMON_CLK_CIX) += clk.o
