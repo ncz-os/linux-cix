@@ -27,6 +27,20 @@
 #include "pci-sky1-acpi.h"
 
 static bool sky1_acpi_detected;
+/*
+ * sky1_pcie_native=off reverts to the standard ACPI PNP0A08/ECAM PCI
+ * host path (firmware link bring-up), as used by the working 7.0.12
+ * vendor kernel on cixmini BIOS 1.0. Native mode (default) blocks
+ * PNP0A08 and drives the Cadence controller directly.
+ */
+static bool sky1_pcie_native = true;
+static int __init sky1_pcie_native_setup(char *arg)
+{
+	if (arg && !strcmp(arg, "off"))
+		sky1_pcie_native = false;
+	return 0;
+}
+early_param("sky1_pcie_native", sky1_pcie_native_setup);
 
 /*
  * Resource filter for CIXH2020 _CRS.
@@ -146,7 +160,7 @@ static int sky1_cixh2020_create_pdev(struct acpi_device *adev)
 static int sky1_acpi_scan_attach(struct acpi_device *adev,
 				 const struct acpi_device_id *id)
 {
-	if (!sky1_acpi_detected)
+	if (!sky1_acpi_detected || !sky1_pcie_native)
 		return 0;
 
 	if (!strcmp(id->id, "PNP0A08")) {
