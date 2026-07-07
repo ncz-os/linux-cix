@@ -541,13 +541,17 @@ static int cix_pcie_phy_probe(struct platform_device *pdev)
 	pcie_phy->dev = dev;
 
 	pcie_phy->apb_clk = devm_clk_get(dev, "pclk");
-	if (IS_ERR(pcie_phy->apb_clk)) {
-		dev_err(dev, "phy apb clock not found\n");
-		return PTR_ERR(pcie_phy->apb_clk);
-	}
+	if (IS_ERR(pcie_phy->apb_clk))
+		return dev_err_probe(dev,
+				     PTR_ERR(pcie_phy->apb_clk) == -ENOENT ?
+				     -EPROBE_DEFER : PTR_ERR(pcie_phy->apb_clk),
+				     "phy apb clock not found\n");
 
 	pcie_phy->refclk = devm_clk_get(dev, "refclk");
 	if (IS_ERR(pcie_phy->refclk)) {
+		if (PTR_ERR(pcie_phy->refclk) == -ENOENT)
+			return dev_err_probe(dev, -EPROBE_DEFER,
+					     "phy refclk not ready\n");
 		dev_err(dev, "phy refclk not found\n");
 		return PTR_ERR(pcie_phy->refclk);
 	}
