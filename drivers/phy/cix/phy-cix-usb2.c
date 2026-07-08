@@ -28,13 +28,12 @@ static int cix_usb2phy_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct reset_control *preset;
 
-	preset = devm_reset_control_get(dev, "preset");
+	preset = devm_reset_control_get_optional(dev, "preset");
+	if (IS_ERR(preset))
+		return dev_err_probe(dev, PTR_ERR(preset),
+				     "%s: failed to get preset\n", __func__);
 
-	if (IS_ERR(preset)) {
-		dev_err(dev, "%s: failed to get preset\n", __func__);
-	} else {
-		reset_control_deassert(preset);
-	}
+	reset_control_deassert(preset);
 
 	return 0;
 }
