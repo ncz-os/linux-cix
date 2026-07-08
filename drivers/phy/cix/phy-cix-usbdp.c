@@ -1445,15 +1445,15 @@ static int cix_udphy_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	udphy->reset = devm_reset_control_get(dev, "reset");
-	if (IS_ERR(udphy->reset)) {
-		dev_err(dev, "%s: failed to get reset\n", __func__);
-	}
+	udphy->reset = devm_reset_control_get_optional(dev, "reset");
+	if (IS_ERR(udphy->reset))
+		return dev_err_probe(dev, PTR_ERR(udphy->reset),
+				     "%s: failed to get reset\n", __func__);
 
-	udphy->preset = devm_reset_control_get(dev, "preset");
-	if (IS_ERR(udphy->preset)) {
-		dev_err(dev, "%s: failed to get preset\n", __func__);
-	}
+	udphy->preset = devm_reset_control_get_optional(dev, "preset");
+	if (IS_ERR(udphy->preset))
+		return dev_err_probe(dev, PTR_ERR(udphy->preset),
+				     "%s: failed to get preset\n", __func__);
 
 	if (!device_property_read_u8(dev, "default_conf", &udphy->next_mode))
 		dev_info(dev, "phy init default mode %02x\n", udphy->next_mode);
