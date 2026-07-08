@@ -6415,3 +6415,68 @@ static void pci_mask_replay_timer_timeout(struct pci_dev *pdev)
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_GLI, 0x9750, pci_mask_replay_timer_timeout);
 DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_GLI, 0x9755, pci_mask_replay_timer_timeout);
 #endif
+
+/*
+ * CIX Sky1 ASPM/ClockPM disable helpers + ASPM workarounds for the
+ * Realtek 0x8127 family on the CIX Sky1 ACPI PCIe host.
+ */
+static bool cix_sky1_acpi_pcie_platform(void)
+{
+#ifdef CONFIG_ARM64
+	return acpi_dev_present("CIXH2020", NULL, -1);
+#endif
+	return false;
+}
+
+static void cix_sky1_disable_config_link_pm(struct pci_dev *dev)
+{
+	u16 lnkctl;
+
+	if (!dev || !pci_is_pcie(dev))
+		return;
+
+	pcie_capability_read_word(dev, PCI_EXP_LNKCTL, &lnkctl);
+	lnkctl &= PCI_EXP_LNKCTL_ASPMC | PCI_EXP_LNKCTL_CLKREQ_EN;
+	if (lnkctl)
+		pci_info(dev, "CIX Sky1: clearing Link Control low-power bits %#06x\n",
+			 lnkctl);
+
+	/*
+	 * pcie_aspm=off prevents the ASPM core from changing firmware state,
+	 * and pci_disable_link_state() consequently returns -EPERM.  Clear
+	 * both ASPM and Clock PM in config space so CLKREQ# cannot gate the
+	 * endpoint clock while its BAR is still in use.
+	 */
+	pcie_capability_clear_word(dev, PCI_EXP_LNKCTL,
+				   PCI_EXP_LNKCTL_ASPMC |
+				   PCI_EXP_LNKCTL_CLKREQ_EN);
+}
+
+static void quirk_cix_sky1_disable_aspm_header(struct pci_dev *dev)
+{
+	if (!cix_sky1_acpi_pcie_platform())
+		return;
+
+	pcie_aspm_remove_cap(dev,
+			     PCI_EXP_LNKCAP_ASPM_L0S | PCI_EXP_LNKCAP_ASPM_L1);
+	cix_sky1_disable_config_link_pm(dev);
+}
+
+static void quirk_cix_sky1_disable_aspm_final(struct pci_dev *dev)
+{
+	struct pci_dev *bridge;
+
+	if (!cix_sky1_acpi_pcie_platform())
+		return;
+
+	if (pcie_aspm_support_enabled() &&
+	    pci_disable_link_state(dev, PCIE_LINK_STATE_ALL))
+		pci_warn(dev, "CIX Sky1: failed to disable ASPM/ClockPM\n");
+	bridge = pci_upstream_bridge(dev);
+	if (bridge)
+		cix_sky1_disable_config_link_pm(bridge);
+	cix_sky1_disable_config_link_pm(dev);
+	pci_info(dev, "CIX Sky1: ASPM/ClockPM disabled (fault workaround)\n");
+}
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_REALTEK, 0x8127, quirk_cix_sky1_disable_aspm_header);
+DECLARE_PCI_FIXUP_FINAL(PCI_VENDOR_ID_REALTEK, 0x8127, quirk_cix_sky1_disable_aspm_final);
