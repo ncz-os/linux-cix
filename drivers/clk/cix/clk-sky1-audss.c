@@ -706,56 +706,14 @@ static void sky1_audss_clk_gate_endisable(struct clk_hw *hw, int enable)
 
 static int sky1_audss_clk_gate_enable(struct clk_hw *hw)
 {
-	struct clk_gate *gate = to_clk_gate(hw);
-	struct sky1_clk_gate *sky1_gate = to_sky1_clk_gate(gate);
-	unsigned long flags;
-
-	spin_lock_irqsave(&sky1_gate->dev->power.lock, flags);
-
-	if (!pm_runtime_active(sky1_gate->dev)) {
-		/* Should not happen theoretically, just add a check to
-		 * avoid access harware exceptionally.
-		 */
-		dev_err(sky1_gate->dev, "enable clock when audss clock controller in suspended\n");
-		return -EPERM;
-	} else {
-		if (sky1_gate->offset == INFO_CLK_GATE && BIT(gate->bit_idx) == BIT(15)) {
-			dev_dbg(sky1_gate->dev, "enable dmac clock\n");
-			pm_runtime_get_noresume(sky1_gate->dev);
-		}
-
-		sky1_audss_clk_gate_endisable(hw, 1);
-	}
-
-	spin_unlock_irqrestore(&sky1_gate->dev->power.lock, flags);
+	sky1_audss_clk_gate_endisable(hw, 1);
 
 	return 0;
 }
 
 static void sky1_audss_clk_gate_disable(struct clk_hw *hw)
 {
-	struct clk_gate *gate = to_clk_gate(hw);
-	struct sky1_clk_gate *sky1_gate = to_sky1_clk_gate(gate);
-	unsigned long flags;
-
-	spin_lock_irqsave(&sky1_gate->dev->power.lock, flags);
-
-	if (!pm_runtime_active(sky1_gate->dev)) {
-		/* Should not happen theoretically, just add a check to
-		 * avoid access harware exceptionally.
-		 */
-		dev_err(sky1_gate->dev, "disable clock when audss clock controller in suspended\n");
-		return;
-	} else {
-		sky1_audss_clk_gate_endisable(hw, 0);
-
-		if (sky1_gate->offset == INFO_CLK_GATE && BIT(gate->bit_idx) == BIT(15)) {
-			dev_dbg(sky1_gate->dev, "disable dmac clock\n");
-			pm_runtime_put_noidle(sky1_gate->dev);
-		}
-	}
-
-	spin_unlock_irqrestore(&sky1_gate->dev->power.lock, flags);
+	sky1_audss_clk_gate_endisable(hw, 0);
 }
 
 static int sky1_audss_clk_gate_is_enabled(struct clk_hw *hw)
