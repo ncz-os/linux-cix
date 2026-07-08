@@ -365,15 +365,15 @@ static int cix_u3phy_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	u3phy->reset = devm_reset_control_get(dev, "reset");
-	if (IS_ERR(u3phy->reset)) {
-		dev_err(dev, "%s: failed to get reset\n", __func__);
-	}
+	u3phy->reset = devm_reset_control_get_optional(dev, "reset");
+	if (IS_ERR(u3phy->reset))
+		return dev_err_probe(dev, PTR_ERR(u3phy->reset),
+				     "%s: failed to get reset\n", __func__);
 
-	u3phy->preset = devm_reset_control_get(dev, "preset");
-	if (IS_ERR(u3phy->preset)) {
-		dev_err(dev, "%s: failed to get preset\n", __func__);
-	}
+	u3phy->preset = devm_reset_control_get_optional(dev, "preset");
+	if (IS_ERR(u3phy->preset))
+		return dev_err_probe(dev, PTR_ERR(u3phy->preset),
+				     "%s: failed to get preset\n", __func__);
 
 	u3phy->apb_clk = devm_clk_get(dev, "apb_clk");
 	if (IS_ERR(u3phy->apb_clk)) {
