@@ -733,31 +733,11 @@ static int sky1_audss_clk_gate_is_enabled(struct clk_hw *hw)
 	return reg ? 1 : 0;
 }
 
-static int sky1_audss_clk_gate_prepare(struct clk_hw *hw)
-{
-	struct clk_gate *gate = to_clk_gate(hw);
-	struct sky1_clk_gate *sky1_gate = to_sky1_clk_gate(gate);
-
-	if (sky1_gate->offset == INFO_CLK_GATE && BIT(gate->bit_idx) == BIT(15)) {
-		dev_dbg(sky1_gate->dev, "prepare dmac clock\n");
-		/*
-		 * Just decrease the power usage_count, would not trigger power management.
-		 * 1) if only enable dmac, power and clk would always keep on.
-		 * 2) if enable i2s + dmac, would depend on i2s do power management.
-		 * Luckily, dmac always work with i2s on audio ss.
-		 */
-		pm_runtime_put_noidle(sky1_gate->dev);
-	}
-
-	return 0;
-}
-
 /* Derive from drivers/clk/clk-gate.c clk_gate_ops */
 static const struct clk_ops sky1_audss_clk_gate_ops = {
 	.enable = sky1_audss_clk_gate_enable,
 	.disable = sky1_audss_clk_gate_disable,
 	.is_enabled = sky1_audss_clk_gate_is_enabled,
-	.prepare = sky1_audss_clk_gate_prepare,
 };
 
 static struct clk_hw *sky1_audss_clk_register(struct device *dev,
