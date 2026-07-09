@@ -1331,12 +1331,31 @@ struct reset_control *__reset_control_get(struct device *dev, const char *id,
 	bool shared = flags & RESET_CONTROL_FLAGS_BIT_SHARED;
 	bool acquired = flags & RESET_CONTROL_FLAGS_BIT_ACQUIRED;
 	struct fwnode_handle *fwnode = dev_fwnode(dev);
+	struct reset_control *rstc;
 
 	if (WARN_ON(shared && acquired))
 		return ERR_PTR(-EINVAL);
 
-	if (fwnode)
-		return __fwnode_reset_control_get(fwnode, id, index, flags);
+	if (fwnode) {
+		rstc = __fwnode_reset_control_get(fwnode, id, index, flags);
+		if (!IS_ERR_OR_NULL(rstc))
+			return rstc;
+
+		/*
+		 * Lookup tables support firmware interfaces which cannot express
+		 * resets as standard fwnode properties.  CIX ACPI, for example,
+		 * describes them in RSTL AML packages which a platform helper
+		 * translates into reset_control_lookup entries.
+		 *
+		 * Before the reset core was converted from OF to fwnode, ACPI
+		 * consumers reached the lookup path because they had no of_node.
+		 * Preserve that behavior when the fwnode has no matching reset,
+		 * while still propagating malformed properties, probe deferrals,
+		 * and all other errors from native fwnode reset providers.
+		 */
+		if (IS_ERR(rstc) && PTR_ERR(rstc) != -ENOENT)
+			return rstc;
+	}
 
 	return __reset_control_get_from_lookup(dev, id, flags);
 }
