@@ -81,6 +81,87 @@ scmi_pd_detach_dev(struct generic_pm_domain *genpd, struct device *dev)
 	dev_pm_opp_remove_all_dynamic(dev);
 }
 
+static struct scmi_perf_domain *scmi_device_to_perf_domain(struct device *dev)
+{
+	struct generic_pm_domain *genpd;
+
+	if (!dev || !dev->pm_domain)
+		return ERR_PTR(-ENODEV);
+
+	genpd = pd_to_genpd(dev->pm_domain);
+	if (IS_ERR(genpd) ||
+	    genpd->set_performance_state != scmi_pd_set_perf_state)
+		return ERR_PTR(-ENODEV);
+
+	return to_scmi_pd(genpd);
+}
+
+/*
+ * CIX 6.6 BSP compatibility exports.
+ *
+ * Source: CIX cix_k6.6.89_2026q2 / ncz72-port cix-2026q2
+ * drivers/soc/arm/scmi_perf_domain.c.  The local 7.2 SCMI perf-domain
+ * protocol op now takes an explicit domain id for device_opps_add(), and this
+ * driver already installs OPPs on genpd attach, so parse treats an existing
+ * table as success.
+ */
+int scmi_device_set_freq(struct device *dev, unsigned long freq)
+{
+	struct scmi_perf_domain *pd = scmi_device_to_perf_domain(dev);
+
+	if (IS_ERR(pd))
+		return PTR_ERR(pd);
+
+	if (!pd->info->set_perf)
+		return 0;
+
+	if (!freq)
+		return -EINVAL;
+
+	return pd->perf_ops->freq_set(pd->ph, pd->domain_id, freq, false);
+}
+EXPORT_SYMBOL_GPL(scmi_device_set_freq);
+
+unsigned long scmi_device_get_freq(struct device *dev)
+{
+	struct scmi_perf_domain *pd = scmi_device_to_perf_domain(dev);
+	unsigned long rate;
+	int ret;
+
+	if (IS_ERR(pd))
+		return 0;
+
+	ret = pd->perf_ops->freq_get(pd->ph, pd->domain_id, &rate, false);
+	if (ret)
+		return 0;
+
+	return rate;
+}
+EXPORT_SYMBOL_GPL(scmi_device_get_freq);
+
+int scmi_device_opp_table_parse(struct device *dev)
+{
+	struct scmi_perf_domain *pd = scmi_device_to_perf_domain(dev);
+	int ret;
+
+	if (IS_ERR(pd))
+		return PTR_ERR(pd);
+
+	if (!pd->info->set_perf)
+		return 0;
+
+	ret = dev_pm_opp_get_opp_count(dev);
+	if (ret > 0)
+		return 0;
+
+	ret = pd->perf_ops->device_opps_add(pd->ph, dev, pd->domain_id);
+	if (ret)
+		dev_err(dev, "failed to add SCMI OPPs for the device\n");
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(scmi_device_opp_table_parse);
+
 struct proto_fwnode_match {
 	u8 protocol_id;
 	struct fwnode_handle *result;
