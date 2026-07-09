@@ -1932,7 +1932,20 @@ static void rtl8169_do_counters(struct rtl8169_private *tp, u32 counter_cmd)
 
 static void rtl8169_update_counters(struct rtl8169_private *tp)
 {
-	u8 val = RTL_R8(tp, ChipCmd);
+	u8 val;
+
+	/*
+	 * CIX Sky1: on the RTL8127A (MAC_VER_80) ANY MMIO to the NIC BAR from
+	 * the stats path faults and escalates to a fatal ARM SError (seen via
+	 * systemd-resolve's RTNL poll ~10s after boot: first the CounterDump
+	 * DMA, then the ChipCmd read itself, ESR 0xbe000011). The NIC reports
+	 * pm_runtime "active" while its BAR is actually inaccessible. Bail
+	 * BEFORE touching any register -- @get_stats64 returns SW counters.
+	 */
+	if (tp->mac_version >= RTL_GIGA_MAC_VER_80)
+		return;
+
+	val = RTL_R8(tp, ChipCmd);
 
 	/*
 	 * Some chips are unable to dump tally counters when the receiver
