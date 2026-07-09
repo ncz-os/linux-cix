@@ -81,7 +81,6 @@ static int __cdns_host_init(struct cdns *cdns)
 	}
 
 	xhci->dev.parent = cdns->dev;
-	cdns->xhci_device = xhci;
 	cdns->host_dev = xhci;
 
 	ret = platform_device_add_resources(xhci, cdns->xhci_res,
@@ -127,8 +126,6 @@ static int __cdns_host_init(struct cdns *cdns)
 free_memory:
 	kfree(cdns->xhci_plat_data);
 err1:
-	cdns->xhci_device = NULL;
-	cdns->host_dev = NULL;
 	platform_device_put(xhci);
 	return ret;
 }
@@ -138,7 +135,6 @@ static void cdns_host_exit(struct cdns *cdns)
 	kfree(cdns->xhci_plat_data);
 	platform_device_unregister(cdns->host_dev);
 	cdns->host_dev = NULL;
-	cdns->xhci_device = NULL;
 	cdns_drd_host_off(cdns);
 }
 
@@ -170,4 +166,3 @@ int cdns_host_init(struct cdns *cdns)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(cdns_host_init);
