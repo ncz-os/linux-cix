@@ -982,6 +982,27 @@ scmi_driver_register(struct scmi_driver *driver, struct module *owner,
 static inline void scmi_driver_unregister(struct scmi_driver *driver) {}
 #endif /* CONFIG_ARM_SCMI_PROTOCOL */
 
+#if IS_REACHABLE(CONFIG_ARM_SCMI_PERF_DOMAIN)
+int scmi_device_opp_table_parse(struct device *dev);
+unsigned long scmi_device_get_freq(struct device *dev);
+int scmi_device_set_freq(struct device *dev, unsigned long freq);
+#else
+static inline int scmi_device_opp_table_parse(struct device *dev)
+{
+	return -ENODEV;
+}
+
+static inline unsigned long scmi_device_get_freq(struct device *dev)
+{
+	return 0;
+}
+
+static inline int scmi_device_set_freq(struct device *dev, unsigned long freq)
+{
+	return -ENODEV;
+}
+#endif /* CONFIG_ARM_SCMI_PERF_DOMAIN */
+
 #define scmi_register(driver) \
 	scmi_driver_register(driver, THIS_MODULE, KBUILD_MODNAME)
 #define scmi_unregister(driver) \
