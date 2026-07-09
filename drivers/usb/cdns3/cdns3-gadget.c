@@ -3526,4 +3526,3 @@ int cdns3_gadget_init(struct cdns *cdns)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(cdns3_gadget_init);
