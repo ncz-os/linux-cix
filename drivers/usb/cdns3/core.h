@@ -31,8 +31,6 @@ struct cdns_role_driver {
 	void (*stop)(struct cdns *cdns);
 	int (*suspend)(struct cdns *cdns, bool do_wakeup);
 	int (*resume)(struct cdns *cdns, bool lost_power);
-	/* CIX Sky1 vendor hook: restore for hibernation (may be NULL) */
-	int (*restore)(struct cdns *cdns);
 	const char *name;
 #define CDNS_ROLE_STATE_INACTIVE	0
 #define CDNS_ROLE_STATE_ACTIVE		1
@@ -44,17 +42,9 @@ struct cdns_role_driver {
 struct cdns3_platform_data {
 	int (*platform_suspend)(struct device *dev,
 			bool suspend, bool wakeup);
-	/*
-	 * CIX Sky1 vendor hooks (stage-1 port to v7.2): populated by the
-	 * cdnsp-sky1 glue; core invocation of these hooks is not yet wired
-	 * up on v7.2 (vendor 2026q2 core fork carried it).
-	 */
-	int (*platform_reset)(struct device *dev);
-	int (*platform_u3_disable)(struct device *dev);
 	unsigned long quirks;
 #define CDNS3_DEFAULT_PM_RUNTIME_ALLOW	BIT(0)
 #define CDNS3_DRD_SUSPEND_RESIDENCY_ENABLE	BIT(1)
-	u32 override_apb_timeout;	/* 0 = use default (e.g. for PCI) */
 };
 
 /**
@@ -92,10 +82,6 @@ struct cdns3_platform_data {
  * @override_apb_timeout: hold value of APB timeout. For value 0 the default
  *                        value in CHICKEN_BITS_3 will be preserved.
  * @gadget_init: pointer to gadget initialization function
- * @host_init: pointer to host initialization function
- * @no_drd: DRD register block is inaccessible. The controller is hardwired to
- *          single role (host or device) or the logic for role switching is
- *          missing.
  */
 struct cdns {
 	struct device			*dev;
@@ -131,23 +117,16 @@ struct cdns {
 	bool				in_lpm;
 	bool				wakeup_pending;
 	struct cdns3_platform_data	*pdata;
-	struct platform_device		*xhci_device;
-	/* CIX Sky1 vendor state (stage-1 port to v7.2) */
-	struct mutex			role_mutex;
-	bool				d3;
-	bool				died;
 	spinlock_t			lock;
 	struct xhci_plat_priv		*xhci_plat_data;
 	u32                             override_apb_timeout;
+
 	int (*gadget_init)(struct cdns *cdns);
-	int (*host_init)(struct cdns *cdns);
-	bool				no_drd;
 };
 
 int cdns_hw_role_switch(struct cdns *cdns);
 int cdns_init(struct cdns *cdns);
 int cdns_remove(struct cdns *cdns);
-int cdns_core_init_role(struct cdns *cdns);
 
 #ifdef CONFIG_PM_SLEEP
 int cdns_resume(struct cdns *cdns);
