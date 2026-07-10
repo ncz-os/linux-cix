@@ -29,9 +29,9 @@ static int default_probe(struct platform_device *p_dev)
 	return armchina_aipu_probe(p_dev, &default_soc, &default_ops);
 }
 
-static int default_remove(struct platform_device *p_dev)
+static void default_remove(struct platform_device *p_dev)
 {
-	return armchina_aipu_remove(p_dev);
+	armchina_aipu_remove(p_dev);
 }
 
 static int default_suspend(struct platform_device *p_dev, pm_message_t state)
