@@ -295,7 +295,7 @@ void mvx_log_group_deinit(void)
         vfree(dur_buf);
     dur_buf = NULL;
 #if MVX_USE_UTILIZATION_TIMER
-    del_timer(&util_timer);
+    timer_delete(&util_timer);
 #endif
     mvx_log_group_destruct(&mvx_log_dev);
     mvx_log_group_destruct(&mvx_log_session_if);
