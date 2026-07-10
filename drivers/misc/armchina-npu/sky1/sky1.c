@@ -428,6 +428,19 @@ static int sky1_npu_probe(struct platform_device *p_dev)
 			if (ret < 0)
 				goto npu_probe_failed;
 		}
+		/* If all pd_core[] are NULL (BIOS v1.0 missing _HID on CRE devices),
+		 * force D0 via ACPI to ensure hardware is powered before probing. */
+		{
+			int all_null = 1;
+			for (i = 0; i < CIX_NPU_PD_NUM; i++)
+				if (sky1_npu_pd_core_valid(cix_aipu_priv->pd_core[i]))
+					{ all_null = 0; break; }
+			if (all_null) {
+				struct acpi_device *adev = ACPI_COMPANION(&p_dev->dev);
+				if (adev)
+					acpi_device_set_power(adev, ACPI_STATE_D0);
+			}
+		}
     }
 
     ret = armchina_aipu_probe(p_dev, &sky1, &sky1_ops);
