@@ -35,6 +35,7 @@
 
 #include <linux/device.h>
 #include <linux/sched.h>
+#include <linux/string.h>
 #include <linux/version.h>
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-event.h>
