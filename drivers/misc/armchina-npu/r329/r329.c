@@ -107,12 +107,11 @@ static int r329_probe(struct platform_device *p_dev)
 	return armchina_aipu_probe(p_dev, &r329, &r329_ops);
 }
 
-static int r329_remove(struct platform_device *p_dev)
+static void r329_remove(struct platform_device *p_dev)
 {
-	int ret = armchina_aipu_remove(p_dev);
+	armchina_aipu_remove(p_dev);
 
 	r329_disable_clk(&p_dev->dev, &r329);
-	return ret;
 }
 
 static int r329_suspend(struct platform_device *p_dev, pm_message_t state)
