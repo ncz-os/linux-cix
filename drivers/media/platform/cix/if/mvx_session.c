@@ -2961,6 +2961,23 @@ static void return_done_buffers(struct mvx_session *session,
     }
 }
 
+static int fw_bin_error(const struct mvx_fw_bin *bin)
+{
+    if (bin->securevideo != false) {
+        if (IS_ERR(bin->secure.securefw))
+            return PTR_ERR(bin->secure.securefw);
+        if (bin->secure.securefw == NULL)
+            return -EINVAL;
+    } else {
+        if (IS_ERR(bin->nonsecure.fw))
+            return PTR_ERR(bin->nonsecure.fw);
+        if (bin->nonsecure.fw == NULL)
+            return -EINVAL;
+    }
+
+    return 0;
+}
+
 /**
  * fw_bin_ready() - Complete firmware configuration.
  *
@@ -2996,6 +3013,12 @@ static void fw_bin_ready(struct mvx_fw_bin *bin,
     /* Return firmware binary if session is no longer 'stream on'. */
     if (!is_stream_on(session))
         goto put_fw_bin;
+
+    ret = fw_bin_error(bin);
+    if (ret != 0) {
+        send_event_error(session, ret);
+        goto put_fw_bin;
+    }
 
     /* Create client session. */
     session->isession.core_mask = session->client_ops->get_core_mask(
