@@ -14,6 +14,7 @@ obj-y += aspeed/
 obj-y += atmel/
 obj-y += broadcom/
 obj-y += cadence/
+obj-y += cix/
 obj-y += chips-media/
 obj-y += imagination/
 obj-y += intel/
