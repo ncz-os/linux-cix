@@ -1119,6 +1119,11 @@ static int mvx_pm_runtime_suspend(struct device *dev)
         mvx_switch_enpwoff(ctx, true);
     }
 
+    /*
+     * Match the resume path: assert reset BEFORE gating the clock off, so
+     * the block is left in a clean, quiescent state across the suspend.
+     */
+    reset_control_assert(ctx->rstc);
     if (!IS_ERR_OR_NULL(ctx->clk))
         clk_disable_unprepare(ctx->clk);
 
@@ -1160,11 +1165,15 @@ static int mvx_pm_runtime_resume(struct device *dev)
         return ret;
     }
 
-    enable_irq(ctx->irq);
-
-    reset_control_assert(ctx->rstc);
-    usleep_range(10, 20);
+    /*
+     * Order matters: deassert the reset BEFORE enabling the IRQ.  Otherwise
+     * the IRQ can fire mid-reset (when the device is not yet fully out of
+     * reset) and corrupt probe state, leading to a silent boot-hang before
+     * any printk.  This matches upstream cixtech/cix_opensource__vpu_driver
+     * v1.0.1 (commit 4080a85).
+     */
     reset_control_deassert(ctx->rstc);
+    enable_irq(ctx->irq);
 
     mvx_switch_qchannel_clock_gating(ctx, true);
 
