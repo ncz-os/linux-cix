@@ -34,6 +34,11 @@ static struct aipu_soc sky1 = {
 
 static struct cix_aipu_priv *cix_aipu_priv;
 
+static bool sky1_npu_pd_core_valid(struct device *dev)
+{
+	return !IS_ERR_OR_NULL(dev);
+}
+
 static struct cix_aipu_priv *sky1_priv_init(struct device *dev)
 {
 	cix_aipu_priv = devm_kzalloc(dev, sizeof(*cix_aipu_priv), GFP_KERNEL);
@@ -296,8 +301,10 @@ static int sky1_npu_attach_pd(struct device *dev, struct aipu_soc *soc)
 		dev_dbg(dev, "%s\n", cix_npu_pd_names[i]);
 
 		cix_aipu_priv->pd_core[i] = dev_pm_domain_attach_by_name(dev, cix_npu_pd_names[i]);
-		if (IS_ERR(cix_aipu_priv->pd_core[i])) {
+		if (IS_ERR_OR_NULL(cix_aipu_priv->pd_core[i])) {
 			dev_err(dev, "failed to get pd %s\n", cix_npu_pd_names[i]);
+			if (!cix_aipu_priv->pd_core[i])
+				return -ENODEV;
 			return PTR_ERR(cix_aipu_priv->pd_core[i]);
 		}
 
@@ -323,7 +330,8 @@ static int sky1_npu_detach_pd(struct device *dev, struct aipu_soc *soc)
 
 	for (int i = 0; i < CIX_NPU_PD_NUM; i++) {
 		dev_dbg(dev, "%s\n", cix_npu_pd_names[i]);
-		dev_pm_domain_detach(cix_aipu_priv->pd_core[i], true);
+		if (sky1_npu_pd_core_valid(cix_aipu_priv->pd_core[i]))
+			dev_pm_domain_detach(cix_aipu_priv->pd_core[i], true);
 	}
 
 	return 0;
@@ -375,7 +383,13 @@ static int sky1_npu_probe(struct platform_device *p_dev)
 				break;
 
 			cix_aipu_priv->pd_core[i] = bus_find_device_by_fwnode(&platform_bus_type, child);
-                	pm_runtime_enable(cix_aipu_priv->pd_core[i]);
+			if (IS_ERR_OR_NULL(cix_aipu_priv->pd_core[i])) {
+				dev_warn(&p_dev->dev, "failed to find NPU core device %s\n",
+					 acpi_device_bid(to_acpi_device_node(child)));
+				continue;
+			}
+
+			pm_runtime_enable(cix_aipu_priv->pd_core[i]);
 			dev_pm_domain_attach(cix_aipu_priv->pd_core[i], true);
 			dev_pm_set_driver_flags(cix_aipu_priv->pd_core[i], DPM_FLAG_NO_DIRECT_COMPLETE);
 			ACPI_COMPANION(cix_aipu_priv->pd_core[i])->power.flags.ignore_parent = true;
@@ -408,6 +422,8 @@ static int sky1_npu_probe(struct platform_device *p_dev)
 
     if (has_acpi_companion(&p_dev->dev)) {
 		for (i = 0; i < CIX_NPU_PD_NUM; i++) {
+			if (!sky1_npu_pd_core_valid(cix_aipu_priv->pd_core[i]))
+				continue;
 			ret = pm_runtime_resume_and_get(cix_aipu_priv->pd_core[i]);
 			if (ret < 0)
 				goto npu_probe_failed;
@@ -433,7 +449,8 @@ npu_probe_failed:
 
     if (has_acpi_companion(&p_dev->dev)) {
 		for (i = 0; i < CIX_NPU_PD_NUM; i++) {
-			pm_runtime_disable(cix_aipu_priv->pd_core[i]);
+			if (sky1_npu_pd_core_valid(cix_aipu_priv->pd_core[i]))
+				pm_runtime_disable(cix_aipu_priv->pd_core[i]);
 		}
 	}
 	pm_runtime_disable(&p_dev->dev);
@@ -444,7 +461,8 @@ npu_probe_failed:
 
 devfreq_init_failed:
 	for (i=0; i < CIX_NPU_PD_NUM; i++) {
-		dev_pm_domain_detach(cix_aipu_priv->pd_core[i], true);
+		if (sky1_npu_pd_core_valid(cix_aipu_priv->pd_core[i]))
+			dev_pm_domain_detach(cix_aipu_priv->pd_core[i], true);
 	}
 
 	return ret;
@@ -482,7 +500,8 @@ static int sky1_npu_runtime_suspend(struct device *dev)
 
 	if (has_acpi_companion(dev)) {
 		for (int i = 0; i < CIX_NPU_PD_NUM; i++) {
-			pm_runtime_put(cix_aipu_priv->pd_core[i]);
+			if (sky1_npu_pd_core_valid(cix_aipu_priv->pd_core[i]))
+				pm_runtime_put(cix_aipu_priv->pd_core[i]);
 		}
 	}
 
@@ -496,6 +515,8 @@ static int sky1_npu_runtime_resume(struct device *dev)
 
 	if (has_acpi_companion(dev)) {
 		for (int i = 0; i < CIX_NPU_PD_NUM; i++) {
+			if (!sky1_npu_pd_core_valid(cix_aipu_priv->pd_core[i]))
+				continue;
 			ret = pm_runtime_get_sync(cix_aipu_priv->pd_core[i]);
 			if (ret < 0) {
 				dev_err(cix_aipu_priv->pd_core[i], "NPU core PM runtime get sync failed! ret=%d", ret);
