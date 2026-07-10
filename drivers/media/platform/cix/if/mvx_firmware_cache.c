@@ -292,7 +292,7 @@ static void request_firmware_done(const struct firmware *fw,
         MVX_LOG_PRINT(&mvx_log_if, MVX_LOG_WARNING,
                   "Failed to load firmware binary. filename=%s.",
                   fw_bin->filename);
-        fw = ERR_PTR(-EINVAL);
+        fw = ERR_PTR(-ENOENT);
         goto fw_ready_callback;
     }
 
@@ -704,17 +704,16 @@ int mvx_fw_cache_get(struct mvx_fw_cache *cache,
     }
 
     /*
-     * If the firmware binary has already been loaded, then the callback
-     * routine can be called right away.
-     * Else the callback and argument is enqueued to the firmware
-     * notification list.
+     * If the firmware request has completed, successfully or not, call the
+     * callback right away. A NULL firmware pointer means the request is still
+     * pending, so enqueue the callback for request_firmware_done().
      */
     if ((fw_bin->securevideo != false &&
-         IS_ERR_OR_NULL(fw_bin->secure.securefw) == false)) {
+         fw_bin->secure.securefw != NULL)) {
         mutex_unlock(&fw_bin->mutex);
         event->fw_bin_ready(fw_bin, event->arg, true);
     } else if (fw_bin->securevideo == false &&
-           IS_ERR_OR_NULL(fw_bin->nonsecure.fw) == false) {
+           fw_bin->nonsecure.fw != NULL) {
         mutex_unlock(&fw_bin->mutex);
         event->fw_bin_ready(fw_bin, event->arg, true);
     } else {

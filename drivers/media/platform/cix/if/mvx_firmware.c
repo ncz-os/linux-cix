@@ -39,6 +39,7 @@
 #include <linux/device.h>
 #include <linux/dma-buf.h>
 #include <linux/errno.h>
+#include <linux/err.h>
 #include <linux/gfp.h>
 #include <linux/list.h>
 #include <linux/mm.h>
@@ -533,9 +534,17 @@ int mvx_fw_factory(struct mvx_fw *fw,
          IS_ERR_OR_NULL(fw_bin->nonsecure.fw)) ||
         (fw_bin->securevideo != false &&
          IS_ERR_OR_NULL(fw_bin->secure.securefw))) {
+        int err = -EINVAL;
+
+        if (fw_bin->securevideo == false && IS_ERR(fw_bin->nonsecure.fw))
+            err = PTR_ERR(fw_bin->nonsecure.fw);
+        else if (fw_bin->securevideo != false &&
+             IS_ERR(fw_bin->secure.securefw))
+            err = PTR_ERR(fw_bin->secure.securefw);
+
         MVX_LOG_PRINT(&mvx_log_if, MVX_LOG_WARNING,
-                  "Firmware binary was loaded with error.");
-        return -EINVAL;
+                  "Firmware binary was loaded with error. ret=%d.", err);
+        return err;
     }
 
     ncores = hweight32(core_mask);
