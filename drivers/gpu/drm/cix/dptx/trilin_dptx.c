@@ -2014,8 +2014,8 @@ static int trilin_dp_core_power_init(struct trilin_dp *dp)
 	DP_DEBUG("enter");
 
 	//power on DP_CORE_PM
-	//pm_runtime_enable(dp->dev);
-	//pm_runtime_get_sync(dp->dev);
+	pm_runtime_enable(dp->dev);
+	pm_runtime_get_sync(dp->dev);
 
 	if (!IS_ERR(dp->dpsub->apb_clk))
 		clk_prepare_enable(dp->dpsub->apb_clk);
@@ -2030,8 +2030,8 @@ static int trilin_dp_core_power_deinit(struct trilin_dp *dp)
 	if (!IS_ERR(dp->dpsub->apb_clk))
 		if (__clk_is_enabled(dp->dpsub->apb_clk))
 			clk_disable_unprepare(dp->dpsub->apb_clk);
-	//pm_runtime_put_sync(dp->dev);
-	//pm_runtime_disable(dp->dev);
+	pm_runtime_put_sync(dp->dev);
+	pm_runtime_disable(dp->dev);
 	return 0;
 }
 
