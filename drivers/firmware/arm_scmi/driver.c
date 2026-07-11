@@ -3383,6 +3383,17 @@ static int scmi_probe(struct platform_device *pdev)
 			if (idr_find(&info->active_protocols, prot_id))
 				continue;
 
+			/* Set up the protocol's Tx/Rx channel before creating its
+			 * device.  Under ACPI there's no per-protocol channel node;
+			 * pass NULL fwnode so scmi_chan_setup() aliases this protocol
+			 * to the Base channel.  do_xfer() has no Base fallback outside
+			 * RAW mode, so without this the protocol has no tx_idr entry
+			 * and every xfer returns -EINVAL, silently killing genpd
+			 * (SCMI_PROTOCOL_POWER 0x11) -> GPU/NPU hang.
+			 */
+			if (scmi_txrx_setup(info, NULL, prot_id))
+				continue;
+
 			ret = idr_alloc(&info->active_protocols, (void *)np,
 					prot_id, prot_id + 1, GFP_KERNEL);
 			if (ret != prot_id)
