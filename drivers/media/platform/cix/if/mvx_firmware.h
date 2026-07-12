@@ -748,6 +748,8 @@ struct mvx_fw_set_option {
         MVX_FW_SET_ENC_INTER_IPENALTY_ANGULAR,
         MVX_FW_SET_ENC_INTER_IPENALTY_PLANAR,
         MVX_FW_SET_ENC_INTER_IPENALTY_DC,
+        MVX_FW_SET_RATE_CONTROL_RRC_DQP_RANGE,
+        MVX_FW_SET_RATE_CONTROL_RRC_DQP_STEP,
     } code;
 
     /**
@@ -852,6 +854,8 @@ struct mvx_fw_set_option {
         uint32_t inter_ipenalty_planar;
         uint32_t inter_ipenalty_dc;
         struct mvx_lambda_scale lambda_scale;
+        uint32_t rrc_dqp_range;
+        uint32_t rrc_dqp_step;
     };
 };
 #define MVX_FW_COLOR_DESC_DISPLAY_VALID         0x1

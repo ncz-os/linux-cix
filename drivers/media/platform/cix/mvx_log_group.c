@@ -36,6 +36,7 @@
 #include <linux/vmalloc.h>
 #include <linux/timer.h>
 #include "mvx_log.h"
+#include "mvx_log_group.h"
 
 /******************************************************************************
  * Defines

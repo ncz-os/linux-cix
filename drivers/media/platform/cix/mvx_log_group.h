@@ -37,6 +37,7 @@
  ****************************************************************************/
 
 #include "mvx_log.h"
+#include <linux/timer.h>
 
 /******************************************************************************
  * Prototypes
@@ -65,5 +66,11 @@ int mvx_log_group_init(const char *entry_name);
  * mvx_log_group_deinit() - Destroy log module.
  */
 void mvx_log_group_deinit(void);
+
+/**
+ * mvx_log_get_util() - Timer callback to compute and log utilization.
+ * @timer:        Pointer to timer_list.
+ */
+void mvx_log_get_util(struct timer_list *timer);
 
 #endif /* _MVX_LOG_GROUP_H_ */

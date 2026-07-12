@@ -2010,8 +2010,25 @@ static int put_message_v2(struct mvx_fw *fw,
                     msg->set_option.target_bitrate;
             }
 
-            ret = put_fw_buf_param(fw, &param,
-                           sizeof(param.data.rate_control));
+            ret = put_fw_buf_param(fw, &param, sizeof(param.data.rate_control));
+            break;
+        }
+        case MVX_FW_SET_RATE_CONTROL_RRC_DQP_RANGE: {
+            struct mve_buffer_param param;
+
+            param.type = MVE_BUFFER_PARAM_TYPE_RATE_CONTROL_RRC_DQP_RANGE;
+            param.data.arg = msg->set_option.rrc_dqp_range;
+            ret = put_fw_buf_param(fw, &param, sizeof(param.data.arg));
+
+            break;
+        }
+        case MVX_FW_SET_RATE_CONTROL_RRC_DQP_STEP: {
+            struct mve_buffer_param param;
+
+            param.type = MVE_BUFFER_PARAM_TYPE_RATE_CONTROL_RRC_DQP_STEP;
+            param.data.arg = msg->set_option.rrc_dqp_step;
+            ret = put_fw_buf_param(fw, &param, sizeof(param.data.arg));
+
             break;
         }
         case MVX_FW_SET_RATE_CONTROL_JPEG: {
