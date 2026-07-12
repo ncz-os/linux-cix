@@ -36,6 +36,7 @@
 #include <linux/debugfs.h>
 #include <linux/device.h>
 #include <linux/list.h>
+#include <linux/hashtable.h>
 #include <linux/module.h>
 #include <linux/poll.h>
 #include <linux/sched.h>
@@ -1245,7 +1246,7 @@ static const uint8_t qtbl_luma_ref[MVX_FW_QUANT_LEN] = {
     72, 92, 95, 98, 112, 100, 103, 99
 };
 
-void generate_quant_tbl(int quality,
+static void generate_quant_tbl(int quality,
             const uint8_t qtbl_ref[MVX_FW_QUANT_LEN],
             uint8_t qtbl[MVX_FW_QUANT_LEN])
 {
@@ -1691,6 +1692,25 @@ static int fw_encoder_setup(struct mvx_session *session)
             if (ret != 0) {
                 MVX_SESSION_WARN(session,
                          "Failed to set constr ipred.");
+                return ret;
+            }
+        }
+
+        if (session->rrc_dqp_range != MVX_INVALID_VAL) {
+            option.code = MVX_FW_SET_RATE_CONTROL_RRC_DQP_RANGE;
+            option.rrc_dqp_range = session->rrc_dqp_range;
+            ret = fw_set_option(session, &option);
+            if (ret != 0) {
+                MVX_SESSION_WARN(session, "Failed to set rrc_dqp_range");
+                return ret;
+            }
+        }
+        if (session->rrc_dqp_step != MVX_INVALID_VAL) {
+            option.code = MVX_FW_SET_RATE_CONTROL_RRC_DQP_STEP;
+            option.rrc_dqp_step = session->rrc_dqp_step;
+            ret = fw_set_option(session, &option);
+            if (ret != 0) {
+                MVX_SESSION_WARN(session, "Failed to set rrc_dqp_step");
                 return ret;
             }
         }
@@ -2321,6 +2341,87 @@ static int fw_encoder_setup(struct mvx_session *session)
     return ret;
 }
 
+static int fw_decoder_set_yuv2rgb_params(struct mvx_session *session)
+{
+    struct mvx_fw_set_option option;
+    int ret;
+
+    if (!mvx_is_rgb24(session->port[MVX_DIR_OUTPUT].format))
+        return 0;
+
+    option.code = MVX_FW_SET_DEC_YUV2RGB_PARAMS;
+
+    if (session->use_cust_color_conv_coef) {
+        memcpy(&option.yuv2rbg_csc_coef, &session->color_conv_coef,
+               sizeof(struct mvx_color_conv_coef));
+        ret = 0;
+    } else {
+        ret = generate_standards_yuv2rgb_coef(session->color_conv_mode,
+                              &option.yuv2rbg_csc_coef);
+    }
+
+    if (ret != 0)
+        return ret;
+
+    ret = fw_set_option(session, &option);
+    if (ret != 0) {
+        MVX_SESSION_WARN(session,
+                 "Failed to set yuv2rgb color conversion mode.");
+        return ret;
+    }
+
+    session->yuv2rgb_configured = true;
+
+    return 0;
+}
+
+/*
+ * Program YUV2RGB when userspace switches decoder output to RGB after the
+ * firmware was already configured for a YUV/AFBC output format.
+ *
+ * Called from mvx_session_set_format() while the capture port is stream-off.
+ * The firmware is left in STOPPED state; mvx_session_streamon() resumes it.
+ */
+static int fw_decoder_apply_yuv2rgb_on_format_change(struct mvx_session *session)
+{
+    int ret;
+
+    if (session->is_encoder || session->yuv2rgb_configured)
+        return 0;
+
+    if (!mvx_is_rgb24(session->port[MVX_DIR_OUTPUT].format))
+        return 0;
+
+    if (!is_fw_loaded(session))
+        return 0;
+
+    if (session->fw_state == MVX_FW_STATE_RUNNING) {
+        ret = fw_state_change(session, MVX_FW_STATE_STOPPED);
+        if (ret != 0)
+            return ret;
+
+        ret = wait_pending(session);
+        if (ret != 0)
+            return ret;
+    }
+
+    /*
+     * Output flush is only legal while stopped (or right after SEQ_PARAM).
+     * This clears the previous YUV/AFBC output configuration.
+     */
+    ret = fw_flush(session, MVX_DIR_OUTPUT);
+    if (ret != 0)
+        return ret;
+
+    ret = wait_pending(session);
+    if (ret != 0)
+        return ret;
+
+    session->port[MVX_DIR_OUTPUT].received_seq_param = false;
+
+    return fw_decoder_set_yuv2rgb_params(session);
+}
+
 static int fw_decoder_setup(struct mvx_session *session)
 {
     int ret;
@@ -2426,24 +2527,9 @@ static int fw_decoder_setup(struct mvx_session *session)
 
     if( mvx_is_rgb24(session->port[MVX_DIR_OUTPUT].format))
     {
-        option.code = MVX_FW_SET_DEC_YUV2RGB_PARAMS;
-
-        if(session->use_cust_color_conv_coef)
-        {
-            ret =0;
-            memcpy(&option.yuv2rbg_csc_coef,&session->color_conv_coef,sizeof(struct mvx_color_conv_coef));
-        }
-        else
-        {
-            ret =generate_standards_yuv2rgb_coef(session->color_conv_mode,&option.yuv2rbg_csc_coef);
-        }
-        if(0==ret)
-        ret = fw_set_option(session, &option);
-        if (ret != 0) {
-            MVX_SESSION_WARN(session,
-                     "Failed to set yuv2rgb color conversion mode.");
+        ret = fw_decoder_set_yuv2rgb_params(session);
+        if (ret != 0)
             return ret;
-        }
     }
     if (session->disabled_features != 0 || codec == MVX_FORMAT_AV1) {
         option.code = MVX_FW_SET_DISABLE_FEATURES;
@@ -3602,6 +3688,8 @@ int mvx_session_construct(struct mvx_session *session,
     session->inter_ipenalty_angular = MVX_INVALID_VAL;
     session->inter_ipenalty_planar = MVX_INVALID_VAL;
     session->inter_ipenalty_dc = MVX_INVALID_VAL;
+    session->rrc_dqp_range = MVX_INVALID_VAL;
+    session->rrc_dqp_step = MVX_INVALID_VAL;
 
     if (session->enable_buffer_dump == true) {
         char input_file[64];
@@ -3770,6 +3858,7 @@ int mvx_session_set_format(struct mvx_session *session,
 {
     struct mvx_session_port *port = &session->port[dir];
     int ret;
+    enum mvx_format old_format = port->format;
 
     if (session->error != 0)
         return session->error;
@@ -3855,6 +3944,13 @@ int mvx_session_set_format(struct mvx_session *session,
         session->nalu_format == MVX_NALU_FORMAT_UNDEFINED)
         mvx_session_set_nalu_format(session,
                     MVX_NALU_FORMAT_FOUR_BYTE_LENGTH_FIELD);
+
+    if (!session->is_encoder && dir == MVX_DIR_OUTPUT &&
+        mvx_is_rgb24(format) && !mvx_is_rgb24(old_format)) {
+        ret = fw_decoder_apply_yuv2rgb_on_format_change(session);
+        if (ret != 0)
+            return ret;
+    }
 
     return 0;
 }
@@ -6807,6 +6903,58 @@ void mvx_session_update_realtime_fps(struct mvx_session *session)
         avgfps, rtfps, frame_count, session->start.tv_sec, session->ts[ts_index].tv_sec);
 }
 
+void mvx_session_update_memory_stats(struct mvx_session *session,
+    struct mvx_log_memory_stats *stats, struct mvx_log_group *group,
+    int *write_idx)
+{
+    enum mvx_direction dir;
+
+    /* Firmware memory. */
+    if (session->fw.text)
+        stats->fw_size += session->fw.text->count * MVE_PAGE_SIZE;
+    if (session->fw.bss)
+        stats->fw_size += session->fw.bss->count * MVE_PAGE_SIZE;
+    if (session->fw.bss_shared)
+        stats->fw_size += session->fw.bss_shared->count * MVE_PAGE_SIZE;
+
+    /* RPC memory. */
+    if (mutex_trylock(&session->fw.rpcmem_mutex)) {
+        struct mvx_mmu_pages *pages;
+        unsigned int bkt;
+
+        hash_for_each(session->fw.rpc_mem, bkt, pages, node)
+            stats->rpc_size += pages->count * MVE_PAGE_SIZE;
+        mutex_unlock(&session->fw.rpcmem_mutex);
+    }
+
+    /* Buffer memory. */
+    for (dir = MVX_DIR_INPUT; dir < MVX_DIR_MAX; dir++) {
+        struct mvx_session_port *port = &session->port[dir];
+        unsigned int i;
+        unsigned int port_size = 0;
+
+        for (i = 0; i < port->nplanes; i++)
+            port_size += port->size[i];
+
+        stats->buf_size += port->buffer_allocated * port_size;
+
+        if (dir == MVX_DIR_INPUT) {
+            stats->in_buf_count = port->buffer_allocated;
+            stats->in_buf_size = port_size;
+        } else {
+            stats->out_buf_count = port->buffer_allocated;
+            stats->out_buf_size = port_size;
+        }
+    }
+
+    if (session->port[get_bitstream_port(session)].format == MVX_FORMAT_JPEG)
+        stats->name = session->is_encoder ? "jpeg_enc" : "jpeg_dec";
+    else
+        stats->name = session->is_encoder ? "encoder" : "decoder";
+
+    mvx_log_session_memory_record(group, stats, write_idx);
+}
+
 void mvx_session_update_buffer_count(struct mvx_session *session,
                     enum mvx_direction dir)
 {
@@ -6913,6 +7061,67 @@ int mvx_session_set_enc_inter_ipenalty_dc(struct mvx_session *session, int val)
         return -EBUSY;
 
     session->inter_ipenalty_dc = val;
+
+    return 0;
+}
+
+int mvx_session_set_rrc_dqp_range(struct mvx_session *session, int val)
+{
+    int ret;
+
+    if (session->error != 0)
+        return session->error;
+
+    if (is_fw_loaded(session) != false) {
+        struct mvx_fw_set_option option;
+        option.code = MVX_FW_SET_RATE_CONTROL_RRC_DQP_RANGE;
+        option.rrc_dqp_range = val;
+        ret = fw_set_option(session, &option);
+        if (ret != 0) {
+            MVX_SESSION_WARN(session,
+                 "Failed to set rrc dqp range");
+            return ret;
+        }
+    }
+
+    session->rrc_dqp_range = val;
+
+    return 0;
+}
+
+int mvx_session_set_rrc_dqp_step(struct mvx_session *session, int val)
+{
+    int ret;
+
+    if (session->error != 0)
+        return session->error;
+
+    if (is_fw_loaded(session) != false) {
+        struct mvx_fw_set_option option;
+        option.code = MVX_FW_SET_RATE_CONTROL_RRC_DQP_STEP;
+        option.rrc_dqp_step = val;
+        ret = fw_set_option(session, &option);
+        if (ret != 0) {
+            MVX_SESSION_WARN(session,
+                 "Failed to set rrc dqp step");
+            return ret;
+        }
+    }
+
+    session->rrc_dqp_step = val;
+
+    return 0;
+}
+
+int mvx_session_set_enc_disable_timescale(struct mvx_session *session, int val)
+{
+   if (session->error != 0)
+        return session->error;
+
+    if (is_fw_loaded(session) != false)
+        return -EBUSY;
+
+    session->disable_timescale = val;
 
     return 0;
 }
