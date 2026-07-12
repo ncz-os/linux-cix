@@ -47,6 +47,7 @@
 
 struct mvx_if_ops;
 struct mvx_hwreg;
+struct mvx_log_group;
 
 enum mvx_sched_state {
     MVX_SCHED_STATE_IDLE,
@@ -286,5 +287,14 @@ int mvx_sched_cancel_work(struct mvx_sched *sched);
  * @sessions:    Pointer to session list.
  */
 void mvx_sched_get_realtime_fps(struct list_head *sessions);
+
+/**
+ * mvx_sched_collect_session_memory_stats() - collect memory stats of each
+ *                          session into the log group's memory buffer.
+ * @sessions:    Pointer to session list.
+ * @group:    Pointer to log group.
+ */
+void mvx_sched_collect_session_memory_stats(struct list_head *sessions,
+                        struct mvx_log_group *group);
 
 #endif /* _MVX_SCHEDULER_H_ */
