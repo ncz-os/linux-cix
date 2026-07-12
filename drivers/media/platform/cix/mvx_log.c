@@ -34,7 +34,9 @@
  ******************************************************************************/
 
 #include "mvx_log.h"
+#include "mvx_log_group.h"
 #include "mvx_log_ram.h"
+#include "mvx_scheduler.h"
 
 #include <linux/uaccess.h>
 #include <linux/aio.h>
@@ -50,12 +52,6 @@
 #include <linux/version.h>
 #include <linux/vmalloc.h>
 
-
-/******************************************************************************
- * External functions
- ******************************************************************************/
-void mvx_sched_get_realtime_fps(struct list_head *sessions);
-
 /******************************************************************************
  * Defines
  ******************************************************************************/
@@ -63,6 +59,9 @@ void mvx_sched_get_realtime_fps(struct list_head *sessions);
 #ifndef UNUSED
 #define UNUSED(x) (void)(x)
 #endif /* UNUSED */
+
+#define BYTES_TO_MB_WHOLE(b) ((unsigned int)((b) * 1000UL / 1024 / 1024) / 1000)
+#define BYTES_TO_MB_FRAC(b) ((unsigned int)((b) * 1000UL / 1024 / 1024) % 1000)
 
 /******************************************************************************
  * Types
@@ -98,8 +97,6 @@ static const char *const severity_to_kern_level[] = {
     KERN_INFO,
     KERN_DEBUG
 };
-
-void mvx_log_get_util(struct timer_list *timer);
 
 /******************************************************************************
  * Static functions
@@ -1093,7 +1090,87 @@ void mvx_log_group_construct(struct mvx_log_group *group,
         memset(group->avgfps, 0, size);
         group->rtfps = vmalloc(size);
         memset(group->rtfps, 0, size);
+        group->memory = vmalloc(size);
+        memset(group->memory, 0, size);
+        group->memory_msg_w = 0;
     }
+}
+
+/******************************************************************************
+ * Session Memory Tracking
+ ******************************************************************************/
+
+/*
+ * mvx_log_session_memory_record() - Format and write one session's memory
+ *        stats to the group's memory buffer.
+ * @group:        Pointer to the perf log group.
+ * @stats:        Pointer to session memory stats.
+ * @write_idx:        Pointer to current write index (updated by this function).
+ */
+void mvx_log_session_memory_record(struct mvx_log_group *group,
+    struct mvx_log_memory_stats *stats, int *write_idx)
+{
+    unsigned int total;
+
+    if (!group->memory)
+        return;
+
+    total = stats->fw_size + stats->rpc_size + stats->buf_size;
+
+    scnprintf(group->memory + MVX_LOG_FPS_MSG_UNIT_SIZE * *write_idx,
+        MVX_LOG_FPS_MSG_UNIT_SIZE,
+        "[%px] %s: FW %u.%03u MB, RPC %u.%03u MB, Buffer %u.%03u MB (IN %u x %u, OUT %u x %u), Total %u.%03u MB\n",
+        stats->session,
+        stats->name,
+        BYTES_TO_MB_WHOLE(stats->fw_size),
+        BYTES_TO_MB_FRAC(stats->fw_size),
+        BYTES_TO_MB_WHOLE(stats->rpc_size),
+        BYTES_TO_MB_FRAC(stats->rpc_size),
+        BYTES_TO_MB_WHOLE(stats->buf_size),
+        BYTES_TO_MB_FRAC(stats->buf_size),
+        stats->in_buf_count, stats->in_buf_size,
+        stats->out_buf_count, stats->out_buf_size,
+        BYTES_TO_MB_WHOLE(total),
+        BYTES_TO_MB_FRAC(total));
+
+    *write_idx = (*write_idx + 1) % MVX_LOG_FPS_MSG_UNITS;
+}
+
+static ssize_t group_memory_read(struct file *file,
+                char __user *user_buffer,
+                size_t count,
+                loff_t *position)
+{
+    /* File path mvx/group/<group>/memory. */
+    struct mvx_log_group *group = get_inode_private(file, 1);
+    char *cache = group->memory + MVX_LOG_FPS_MSG_BUF_SIZE;
+    size_t len = 0;
+
+    /* Collect memory stats from all active sessions at read time. */
+    mvx_sched_collect_session_memory_stats(group->sessions, group);
+
+    mutex_lock(&group->mutex);
+    if (group->memory && group->memory_msg_w > 0) {
+        int i;
+        int num = group->memory_msg_w;
+        int offset = 0;
+        char *start = group->memory + offset;
+        if (start[0] == 0)
+            num = 0;
+        for (i = 0; i < num; i++) {
+            len += scnprintf(cache + len, MVX_LOG_FPS_MSG_UNIT_SIZE,
+                    "%s", group->memory + offset);
+            offset += MVX_LOG_FPS_MSG_UNIT_SIZE;
+            if (offset == MVX_LOG_FPS_MSG_BUF_SIZE)
+                offset = 0;
+        }
+    } else {
+        len = scnprintf(cache, MVX_LOG_FPS_MSG_UNIT_SIZE,
+                "No session memory info yet.\n");
+    }
+    mutex_unlock(&group->mutex);
+
+    return simple_read_from_buffer(user_buffer, count, position, cache, len);
 }
 
 int mvx_log_group_add(struct mvx_log *log,
@@ -1135,6 +1212,9 @@ int mvx_log_group_add(struct mvx_log *log,
             .read  = group_status_read,
             .write = group_status_write,
         };
+        static const struct file_operations memory_fops = {
+            .read    = group_memory_read,
+        };
         /* Create <group>/utilization. */
         debugfs_create_file("utilization", 0400, group->dentry, NULL,
                         &group_util_fops);
@@ -1150,6 +1230,10 @@ int mvx_log_group_add(struct mvx_log *log,
         /* Create <group>/enable. */
         debugfs_create_file("enable", 0600, group->dentry, NULL,
                         &group_status_fops);
+
+        /* Create <group>/memory. */
+        debugfs_create_file("memory", 0400, group->dentry, NULL,
+                        &memory_fops);
     } else {
         /* Create <group>/drain. */
         static const struct file_operations group_drain_fops = {
@@ -1177,6 +1261,8 @@ void mvx_log_group_destruct(struct mvx_log_group *group)
         vfree(group->avgfps);
     if (group->rtfps)
         vfree(group->rtfps);
+    if (group->memory)
+        vfree(group->memory);
 }
 
 const char *mvx_log_strrchr(const char *s)
