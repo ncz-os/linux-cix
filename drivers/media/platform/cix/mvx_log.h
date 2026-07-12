@@ -258,10 +258,46 @@ struct mvx_log_group {
     int rtfps_num;
     char *avgfps;
     int fps_msg_w;
+    char *memory;
+    int memory_msg_w;
     bool has_update;
     struct list_head *sessions;
     struct mutex mutex;
 };
+
+/**
+ * struct mvx_log_memory_stats - Memory statistics for a session.
+ * @session:        Pointer to session (for display).
+ * @name:        Session type name (e.g., "encoder", "decoder").
+ * @fw_size:        Firmware memory size in bytes.
+ * @rpc_size:        RPC memory size in bytes.
+ * @buf_size:        Buffer memory size in bytes.
+ * @in_buf_count:    Number of input buffers.
+ * @in_buf_size:    Size of each input buffer.
+ * @out_buf_count:    Number of output buffers.
+ * @out_buf_size:    Size of each output buffer.
+ */
+struct mvx_log_memory_stats {
+    void *session;
+    const char *name;
+    unsigned int fw_size;
+    unsigned int rpc_size;
+    unsigned int buf_size;
+    unsigned int in_buf_count;
+    unsigned int in_buf_size;
+    unsigned int out_buf_count;
+    unsigned int out_buf_size;
+};
+
+/**
+ * mvx_log_session_memory_record() - Format and write one session's memory
+ *        stats to the group's memory buffer.
+ * @group:        Pointer to the perf log group.
+ * @stats:        Pointer to session memory stats.
+ * @write_idx:        Pointer to current write index (updated by this function).
+ */
+void mvx_log_session_memory_record(struct mvx_log_group *group,
+    struct mvx_log_memory_stats *stats, int *write_idx);
 
 /**
  * struct mvx_log - Log class that keeps track of registered groups and drains.

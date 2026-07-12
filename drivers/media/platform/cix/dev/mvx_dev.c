@@ -51,6 +51,7 @@
 #include <linux/reset.h>
 #include <linux/reset-controller.h>
 #include <linux/clk.h>
+#include <linux/completion.h>
 #include <linux/delay.h>
 #include <linux/devfreq.h>
 #include <linux/devfreq-event.h>
@@ -143,6 +144,7 @@ struct mvx_dev_ctx {
     struct devfreq_dev_profile devfreq_profile;
     struct devfreq *devfreq;
     unsigned long target_freq;
+    struct completion probe_done;
 };
 
 /**
@@ -392,7 +394,7 @@ static int send_irq(struct mvx_client_session *csession)
     return ret;
 }
 
-int soft_irq(struct mvx_client_session *csession)
+static int soft_irq(struct mvx_client_session *csession)
 {
     struct mvx_dev_ctx *ctx = csession->ctx;
     int ret;
@@ -422,6 +424,19 @@ static void print_debug(struct mvx_client_session *csession)
     struct mvx_dev_ctx *ctx = csession->ctx;
 
     mvx_sched_print_debug(&ctx->scheduler, &csession->session);
+}
+
+static int wait_probe_done(struct mvx_client_ops *client)
+{
+    struct mvx_dev_ctx *ctx = container_of(client, struct mvx_dev_ctx, client_ops);
+    unsigned long timeout;
+
+    timeout = wait_for_completion_timeout(&ctx->probe_done,
+                          msecs_to_jiffies(10000));
+    if (timeout == 0)
+        return -ETIMEDOUT;
+
+    return 0;
 }
 
 static struct mvx_dev_ctx *work_to_ctx(struct work_struct *work)
@@ -757,6 +772,7 @@ static int mvx_dev_probe(struct device *dev,
 
     ctx->dev = dev;
     dev_set_drvdata(dev, ctx);
+    init_completion(&ctx->probe_done);
 
     /* Setup client ops callbacks. */
     ctx->client_ops.get_hw_ver = get_hw_ver;
@@ -773,6 +789,7 @@ static int mvx_dev_probe(struct device *dev,
     ctx->client_ops.update_load = update_load;
     ctx->client_ops.terminate = terminate;
     ctx->client_ops.reset_priority = reset_priority;
+    ctx->client_ops.wait_probe_done = wait_probe_done;
 
     /* Create if context. */
     ctx->if_ops = mvx_if_create(dev, &ctx->client_ops, ctx);
@@ -915,6 +932,8 @@ static int mvx_dev_probe(struct device *dev,
               mvx_hwreg_get_nlsid(&ctx->hwreg),
               dev->id);
 
+    complete_all(&ctx->probe_done);
+
     mvx_pm_runtime_put_sync(ctx->dev);
     return 0;
 
@@ -957,6 +976,8 @@ destroy_if:
     mvx_if_destroy(ctx->if_ops);
 
 free_ctx:
+    complete_all(&ctx->probe_done);
+
     devm_kfree(dev, ctx);
     return ret;
 }
@@ -1032,6 +1053,11 @@ static int mvx_hw_init(struct device *dev)
         return 0;
 
     MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_INFO, "hardware init");
+    /* Sky1P MMHUB DDR remap uses 256-byte, four-channel interleaving. */
+    if (ctx->hwreg.hw_ver.svn_revision == MVE_SVN_4K)
+        busctrl_split = min_t(unsigned int, busctrl_split,
+                              MVE_BUSTCTRL_SPLIT_256);
+
     mvx_hwreg_write(&ctx->hwreg, MVX_HWREG_BUSCTRL,
                     busctrl_ref << MVE_BUSTCTRL_REF_SHIFT |
                     busctrl_split);
