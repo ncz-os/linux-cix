@@ -33,6 +33,8 @@
  * Includes
  ****************************************************************************/
 
+#include <linux/bitops.h>
+#include <linux/bits.h>
 #include <linux/device.h>
 #include <linux/of_address.h>
 #include <linux/module.h>
@@ -44,12 +46,22 @@
 #include "mvx_hwreg_v52_v76.h"
 #include "mvx_pm_runtime.h"
 
-static uint hw_ncores = MVX_NUMBER_OF_CORES;
-module_param(hw_ncores, uint, 0660);
+static uint32_t sw_core_mask = (1 << MVX_MAX_NUMBER_OF_CORES) - 1;
+module_param(sw_core_mask, uint, 0660);
 
 /****************************************************************************
  * Static functions
  ****************************************************************************/
+
+static uint32_t sw_core_active_limit(const struct mvx_hwreg *hwreg)
+{
+	uint32_t sw_eff;
+
+	if (hwreg->ncores == 0)
+		return 0;
+	sw_eff = sw_core_mask & GENMASK(hwreg->ncores - 1, 0);
+	return min(hwreg->ncores, (uint32_t)hweight32(sw_eff));
+}
 
 static unsigned int get_offset(enum mvx_hwreg_what what)
 {
@@ -338,7 +350,7 @@ static int lsid_regs_debugfs_init(struct mvx_lsid_hwreg *lsid_hwreg,
     return 0;
 }
 
-int debugfs_init(struct mvx_hwreg *hwreg,
+static int debugfs_init(struct mvx_hwreg *hwreg,
          struct dentry *parent)
 {
     int ret;
@@ -391,8 +403,9 @@ static int mvx_hwreg_verify_core_mask(struct mvx_hwreg *hwreg)
     uint32_t bit;
     uint32_t core_mask = 0;
     uint32_t ncores = 0;
-    long unsigned int mask = (long unsigned int)hwreg->core_mask;
-    int active_ncores = mvx_hwreg_get_ncores(hwreg);
+    unsigned long mask = (unsigned long)hwreg->core_mask &
+                  (unsigned long)sw_core_mask;
+    uint32_t active_ncores = sw_core_active_limit(hwreg);
 
     /* Make sure # of cores in mask doesn't exceed # of active cores*/
     for_each_set_bit(bit, &mask, hwreg->ncores) {
@@ -575,12 +588,7 @@ uint32_t mvx_hwreg_get_fuse(struct mvx_hwreg *hwreg)
 
 uint32_t mvx_hwreg_get_ncores(struct mvx_hwreg *hwreg)
 {
-    if (hwreg->ncores > hw_ncores) {
-        MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_INFO,
-                "Downscale hw cores to %d.", hw_ncores);
-        return hw_ncores;
-    }
-    return hwreg->ncores;
+    return sw_core_active_limit(hwreg);
 }
 
 uint32_t mvx_hwreg_get_nlsid(struct mvx_hwreg *hwreg)
