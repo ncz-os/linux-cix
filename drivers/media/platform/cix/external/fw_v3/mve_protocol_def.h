@@ -1904,6 +1904,8 @@ struct mve_buffer_param
         #define MVE_BUFFER_PARAM_TYPE_GOP_RESET_LTR_PEROID_DYNAMIC   (28) /* reset ltr peroid dynamiclly */
         #define MVE_BUFFER_PARAM_TYPE_ENC_STATS                  (29) /* encode stats */
         #define MVE_BUFFER_PARAM_TYPE_OSD_RECTANGLES             (30) /* osd rectangles */
+        #define MVE_BUFFER_PARAM_TYPE_RATE_CONTROL_RRC_DQP_RANGE (36)
+        #define MVE_BUFFER_PARAM_TYPE_RATE_CONTROL_RRC_DQP_STEP  (37)
 
     union
     {
