@@ -113,8 +113,7 @@
 #define MVX_RCSU_HWREG_HARVESTING_BITS              4
 #define MVX_RCSU_HWREG_HARVESTING_MASK              ((1 << MVX_RCSU_HWREG_HARVESTING_BITS) - 1)
 
-#define MVX_NUMBER_OF_LSID 4
-#define MVX_NUMBER_OF_CORES 4
+#define MVX_MAX_NUMBER_OF_CORES 4
 
 /* Timeout(ms) of wait VPU clear terminate register */
 #define MVX_HWREG_TERMINATE_TIMEOUT 100
@@ -357,10 +356,13 @@ void mvx_hwreg_get_hw_ver(struct mvx_hwreg *hwreg, struct mvx_hw_ver *hw_ver);
 uint32_t mvx_hwreg_get_fuse(struct mvx_hwreg *hwreg);
 
 /**
- * mvx_hwreg_get_ncores() - Get hardware core number.
+ * mvx_hwreg_get_ncores() - Get active core count upper bound.
  * @hwreg:    Pointer to hwreg object.
  *
- * Return: Value of hardware core number.
+ * Capped by MVX_HWREG_NCORES and module parameter sw_core_mask.
+ * The enabled core set is mvx_hwreg_get_core_mask().
+ *
+ * Return: Active core count limit.
  */
 uint32_t mvx_hwreg_get_ncores(struct mvx_hwreg *hwreg);
 
