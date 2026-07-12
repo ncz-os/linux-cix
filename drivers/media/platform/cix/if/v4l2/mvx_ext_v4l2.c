@@ -104,7 +104,7 @@ static const struct v4l2_ioctl_ops mvx_v4l2_ioctl_ops = {
     .vidioc_default                 = mvx_v4l2_vidioc_default
 };
 
-int mvx_ext_if_register_device(struct mvx_ext_if *ext,
+static int mvx_ext_if_register_device(struct mvx_ext_if *ext,
              const char *name,
              bool is_encoder)
 {
