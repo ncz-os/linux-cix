@@ -493,7 +493,7 @@ static const struct file_operations sched_fops = {
     .release = single_release
 };
 
-int sched_debugfs_init(struct mvx_sched *sched,
+static int sched_debugfs_init(struct mvx_sched *sched,
                struct dentry *parent)
 {
     struct dentry *dentry;
@@ -599,7 +599,7 @@ int mvx_sched_session_construct(struct mvx_sched_session *session,
 void mvx_sched_session_destruct(struct mvx_sched_session *session)
 {}
 
-void mvx_sched_list_insert_by_priority(struct mvx_sched *sched,
+static void mvx_sched_list_insert_by_priority(struct mvx_sched *sched,
                 struct mvx_sched_session *session)
 {
     struct mvx_sched_session *tmp;
@@ -648,18 +648,10 @@ unlock_mutex:
     return 0;
 }
 
-int mvx_sched_switch_out_rsp(struct mvx_sched *sched,
-            struct mvx_sched_session *session)
+static bool is_all_lsid_idle(struct mvx_sched *sched)
 {
     int i;
-    int ret;
     bool all_lsid_idle = true;
-
-    ret = mutex_lock_interruptible(&sched->mutex);
-    if (ret != 0) {
-        MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_WARNING, "get scheduler lock fail.");
-        return ret;
-    }
 
     for (i = 0; i < sched->nlsid; i++)
         all_lsid_idle &= mvx_lsid_idle(&sched->lsid[i]);
@@ -674,13 +666,27 @@ int mvx_sched_switch_out_rsp(struct mvx_sched *sched,
         }
     }
 
+    return all_lsid_idle;
+}
+
+int mvx_sched_switch_out_rsp(struct mvx_sched *sched,
+            struct mvx_sched_session *session)
+{
+    int ret;
+
+    ret = mutex_lock_interruptible(&sched->mutex);
+    if (ret != 0) {
+        MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_WARNING, "get scheduler lock fail.");
+        return ret;
+    }
+
     if (sched->state == MVX_SCHED_STATE_SUSPEND) {
-        if (all_lsid_idle == false)
+        if (!is_all_lsid_idle(sched))
             goto end;
 
         complete(&sched->cmp);
     } else if (sched->state == MVX_SCHED_STATE_RUNNING) {
-        if (list_empty_careful(&sched->pending) && all_lsid_idle == true)
+        if (list_empty_careful(&sched->pending) && is_all_lsid_idle(sched))
             set_sched_state(sched, MVX_SCHED_STATE_IDLE);
     }
 
@@ -926,6 +932,7 @@ int mvx_sched_suspend(struct mvx_sched *sched)
     int ret;
     int i;
     bool wait_suspend = false;
+    int wait_ret = wait_scheduler_timeout;
 
     for (i = 0; i < sched->nlsid; i++) {
         struct mvx_sched_session *ss = sched->lsid[i].session;
@@ -954,9 +961,7 @@ int mvx_sched_suspend(struct mvx_sched *sched)
 
     if (wait_suspend) {
         MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_INFO, "Waiting scheduler idle.");
-        ret = wait_for_completion_timeout(&sched->cmp, msecs_to_jiffies(wait_scheduler_timeout));
-        if (!ret)
-            MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR, "Waiting scheduler idle timeout.");
+        wait_ret = wait_for_completion_timeout(&sched->cmp, msecs_to_jiffies(wait_scheduler_timeout));
     }
 
     ret = mutex_lock_interruptible(&sched->mutex);
@@ -964,6 +969,9 @@ int mvx_sched_suspend(struct mvx_sched *sched)
         MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_WARNING, "Get scheduler lock fail.");
         return -EBUSY;
     }
+
+    if (wait_ret == 0 && !is_all_lsid_idle(sched))
+        MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_ERROR, "Waiting scheduler idle timeout.");
 
     for (i = 0; i < MVX_LSID_MAX; i++)
         if (sched->lsid[i].session)
@@ -1155,4 +1163,33 @@ void mvx_sched_get_realtime_fps(struct list_head *sessions)
     }
 
     mutex_unlock(&sched->sessions_mutex);
+}
+
+void mvx_sched_collect_session_memory_stats(struct list_head *sessions,
+    struct mvx_log_group *group)
+{
+    struct mvx_sched_session *session;
+    struct mvx_sched_session *tmp;
+    struct mvx_sched *sched;
+    int write_idx = 0;
+
+    if (!group->memory)
+        return;
+
+    sched = container_of(sessions, struct mvx_sched, sessions);
+    mutex_lock(&sched->sessions_mutex);
+
+    list_for_each_entry_safe(session, tmp, sessions, session) {
+        if (session && session->isession) {
+            struct mvx_session *s = mvx_if_session_to_session(session->isession);
+            struct mvx_log_memory_stats stats = { 0 };
+
+            stats.session = s;
+            mvx_session_update_memory_stats(s, &stats, group, &write_idx);
+        }
+    }
+
+    mutex_unlock(&sched->sessions_mutex);
+
+    group->memory_msg_w = min(write_idx, MVX_LOG_FPS_MSG_UNITS);
 }

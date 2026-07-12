@@ -501,6 +501,20 @@ struct mvx_client_ops {
      */
     void (*reset_priority)(struct mvx_client_session *session);
 
+    /**
+     * notify_dsm_event() - send sysevent to dsm.
+     *
+     * Return: None.
+     */
+    void (*notify_dsm_event)(struct mvx_client_session *csession, char *msg);
+
+    /**
+     * wait_probe_done() - Wait for device probe to complete.
+     *
+     * Return: 0 on success, else error code.
+     */
+    int (*wait_probe_done)(struct mvx_client_ops *client);
+
 };
 
 /****************************************************************************
