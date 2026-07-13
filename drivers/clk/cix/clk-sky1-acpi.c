@@ -21,6 +21,7 @@
 #include <linux/clk.h>
 #include <linux/clkdev.h>
 #include <linux/module.h>
+#include <linux/platform_device.h>
 
 struct sky1_acpi_clk {
 	struct device *dev;
@@ -149,29 +150,29 @@ out:
 	return AE_OK;
 }
 
-static int sky1_acpi_clk_add(struct acpi_device *adev)
+static int sky1_acpi_clk_probe(struct platform_device *pdev)
 {
 	struct sky1_acpi_clk *priv;
 	acpi_status status;
 
-	priv = devm_kzalloc(&adev->dev, sizeof(*priv), GFP_KERNEL);
+	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
 		return -ENOMEM;
 
-	priv->dev = &adev->dev;
+	priv->dev = &pdev->dev;
 
 	status = acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT,
 				     ACPI_UINT32_MAX, sky1_clkt_walk_cb,
 				     NULL, priv, NULL);
 	if (ACPI_FAILURE(status))
-		return dev_err_probe(&adev->dev, -ENODEV,
+		return dev_err_probe(&pdev->dev, -ENODEV,
 				     "ACPI namespace walk failed\n");
 
 	if (priv->mapped == 0)
-		return dev_err_probe(&adev->dev, -EPROBE_DEFER,
+		return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
 				     "No SCMI clocks mapped yet\n");
 
-	dev_info(&adev->dev, "Mapped %d ACPI clock lookup entries\n",
+	dev_info(&pdev->dev, "Mapped %d ACPI clock lookup entries\n",
 		 priv->mapped);
 	return 0;
 }
@@ -182,12 +183,14 @@ static const struct acpi_device_id sky1_acpi_clk_ids[] = {
 };
 MODULE_DEVICE_TABLE(acpi, sky1_acpi_clk_ids);
 
-static struct acpi_driver sky1_acpi_clk_driver = {
-	.name = "clk-sky1-acpi",
-	.ids = sky1_acpi_clk_ids,
-	.ops = { .add = sky1_acpi_clk_add },
+static struct platform_driver sky1_acpi_clk_driver = {
+	.driver = {
+		.name = "clk-sky1-acpi",
+		.acpi_match_table = sky1_acpi_clk_ids,
+	},
+	.probe = sky1_acpi_clk_probe,
 };
-module_acpi_driver(sky1_acpi_clk_driver);
+module_platform_driver(sky1_acpi_clk_driver);
 
 MODULE_DESCRIPTION("CIX Sky1 ACPI clock lookup table driver");
 MODULE_LICENSE("GPL");
