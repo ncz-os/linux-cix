@@ -1483,14 +1483,8 @@ static int cix_udphy_probe(struct platform_device *pdev)
 			udphy->phy_init_skip_count = 0;
 			break;
 		}
+		dev_info(dev, "get phy-status:[%d]%d\n", id, gop_value);
 		iounmap(g_status);
-	}
-
-	dev_info(dev, "get phy-status:[%d]%d\n", id, gop_value);
-	if (udphy->phy_reset) {
-		dev_info(dev, "phy reset\n");
-		reset_control_assert(udphy->reset);
-		reset_control_assert(udphy->preset);
 	}
 
 	udphy->apb_clk = devm_clk_get(dev, "pclk");
@@ -1499,6 +1493,12 @@ static int cix_udphy_probe(struct platform_device *pdev)
 				     PTR_ERR(udphy->apb_clk) == -ENOENT ?
 				     -EPROBE_DEFER : PTR_ERR(udphy->apb_clk),
 				     "phy apb clock not found\n");
+
+	if (udphy->phy_reset) {
+		dev_info(dev, "phy reset\n");
+		reset_control_assert(udphy->reset);
+		reset_control_assert(udphy->preset);
+	}
 
 	udphy->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(udphy->base))
