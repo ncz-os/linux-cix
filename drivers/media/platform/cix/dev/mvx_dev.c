@@ -62,8 +62,8 @@
  * Mainline devfreq support:
  * - Use dev_pm_domain_attach_by_name() to attach to SCMI perf domain
  * - SCMI perf domain auto-populates OPPs via attach_dev callback
- * - Use dev_pm_opp_set_rate() for frequency control
- * - Use clk_get_rate() to query current frequency
+ * - Use genpd performance states for frequency control
+ * - Cache the last successfully selected frequency
  *
  * CIX vendor kernels use scmi_device_opp_table_parse/set_freq/get_freq
  * which are not available in mainline. Runtime detection is used.
@@ -144,6 +144,7 @@ struct mvx_dev_ctx {
     struct devfreq_dev_profile devfreq_profile;
     struct devfreq *devfreq;
     unsigned long target_freq;
+    unsigned long current_freq;
     struct completion probe_done;
 };
 
@@ -509,6 +510,7 @@ static int mvx_devfreq_target(struct device *dev, unsigned long *freq, u32 flags
     struct dev_pm_opp *opp;
     unsigned long pre_freq;
     unsigned long target_freq = *freq;
+    unsigned int pstate;
     int ret;
 
     opp = devfreq_recommended_opp(dev, freq, flags);
@@ -518,10 +520,31 @@ static int mvx_devfreq_target(struct device *dev, unsigned long *freq, u32 flags
     }
     dev_pm_opp_put(opp);
 
-    pre_freq = ctx->clk ? clk_get_rate(ctx->clk) : 0;
-    ret = dev_pm_opp_set_rate(dev, *freq);
-    if (!ret)
+    /*
+     * The OPPs originate from the SCMI performance domain.  Program that
+     * domain with the firmware performance level corresponding to the
+     * devfreq-selected frequency; ctx->clk is the separately managed VPU
+     * functional clock and is not the DVFS control.
+     */
+    opp = dev_pm_opp_find_freq_exact(ctx->opp_pmdomain, *freq, true);
+    if (IS_ERR(opp)) {
+        dev_err(dev, "Failed to get perf-domain OPP for %lu Hz\n", *freq);
+        return PTR_ERR(opp);
+    }
+
+    pstate = dev_pm_opp_get_level(opp);
+    dev_pm_opp_put(opp);
+    if (pstate == U32_MAX) {
+        dev_err(dev, "No performance level for %lu Hz\n", *freq);
+        return -EINVAL;
+    }
+
+    pre_freq = READ_ONCE(ctx->current_freq);
+    ret = dev_pm_genpd_set_performance_state(ctx->opp_pmdomain, pstate);
+    if (!ret) {
+        WRITE_ONCE(ctx->current_freq, *freq);
         atomic_set(&mvx_log_perf.freq, *freq);
+    }
 
     MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_DEBUG, "%s() target=%ld, previous=%ld, current=%ld.",
                     __func__, target_freq, pre_freq, *freq);
@@ -533,7 +556,7 @@ static int mvx_devfreq_get_cur_freq(struct device *dev, unsigned long *freq)
 {
     struct mvx_dev_ctx *ctx = dev_get_drvdata(dev);
 
-    *freq = ctx->clk ? clk_get_rate(ctx->clk) : 0;
+    *freq = READ_ONCE(ctx->current_freq);
     MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_DEBUG, "%s() %ld", __func__, *freq);
 
     return 0;
@@ -545,7 +568,7 @@ static int mvx_devfreq_get_dev_status(struct device *dev,
     struct mvx_dev_ctx *ctx = dev_get_drvdata(dev);
 
     update_freq(ctx);
-    stat->current_frequency = ctx->clk ? clk_get_rate(ctx->clk) : 0;
+    stat->current_frequency = READ_ONCE(ctx->current_freq);
     stat->busy_time = ctx->target_freq;
     stat->total_time = stat->current_frequency;
 
@@ -646,7 +669,14 @@ static int mvx_devfreq_init(struct mvx_dev_ctx *ctx)
         }
     }
 
+    if (!i) {
+        ret = -ENODEV;
+        goto free_table;
+    }
+
     profile->max_state = i;
+    profile->initial_freq = profile->freq_table[0];
+    ctx->current_freq = profile->initial_freq;
     profile->polling_ms = 100;
     profile->target = mvx_devfreq_target;
     profile->get_dev_status = mvx_devfreq_get_dev_status;
