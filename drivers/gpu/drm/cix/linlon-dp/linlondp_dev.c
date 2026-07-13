@@ -662,7 +662,10 @@ struct linlondp_dev *linlondp_dev_create(struct device *dev)
 		goto err_cleanup;
 	}
 
-	clk_prepare_enable(mdev->aclk);
+	err = clk_prepare_enable(mdev->aclk);
+	if (err)
+		return ERR_PTR(dev_err_probe(dev, err,
+					     "failed to enable aclk\n"));
 #endif
 	pm_runtime_get_sync(mdev->dev);
 	mdev->funcs = linlondp_identify(mdev->reg_base, &mdev->chip);
@@ -804,7 +807,8 @@ int linlondp_dev_resume(struct linlondp_dev *mdev)
 #if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
 	err = clk_prepare_enable(mdev->aclk);
 	if (err)
-		dev_err(mdev->dev, "%s, failed to enable aclk\n", __func__);
+		return dev_err_probe(mdev->dev, err,
+				     "%s, failed to enable aclk\n", __func__);
 #endif
 	mdev->funcs->enable_irq(mdev);
 
