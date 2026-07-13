@@ -26,6 +26,8 @@
 struct sky1_acpi_clk {
 	struct device *dev;
 	int mapped;
+	int pending;
+	int error;
 };
 
 static void sky1_clkdev_drop(void *data)
@@ -102,6 +104,7 @@ static acpi_status sky1_clkt_walk_cb(acpi_handle handle, u32 level,
 	union acpi_object *obj;
 	const char *consumer_name;
 	acpi_status status;
+	int ret;
 	int i;
 
 	status = acpi_evaluate_object(handle, "CLKT", NULL, &buf);
@@ -142,7 +145,11 @@ static acpi_status sky1_clkt_walk_cb(acpi_handle handle, u32 level,
 		}
 		consumer_name = acpi_dev_name(adev);
 parse:
-		sky1_parse_clkt_entry(priv, consumer_name, e);
+		ret = sky1_parse_clkt_entry(priv, consumer_name, e);
+		if (ret == -ENOENT || ret == -EPROBE_DEFER)
+			priv->pending++;
+		else if (ret && !priv->error)
+			priv->error = ret;
 	}
 
 out:
@@ -167,6 +174,15 @@ static int sky1_acpi_clk_probe(struct platform_device *pdev)
 	if (ACPI_FAILURE(status))
 		return dev_err_probe(&pdev->dev, -ENODEV,
 				     "ACPI namespace walk failed\n");
+
+	if (priv->error)
+		return dev_err_probe(&pdev->dev, priv->error,
+				     "Invalid ACPI CLKT entry\n");
+
+	if (priv->pending)
+		return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
+				     "%d ACPI CLKT entries not mapped yet\n",
+				     priv->pending);
 
 	if (priv->mapped == 0)
 		return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
