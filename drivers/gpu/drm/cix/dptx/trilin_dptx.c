@@ -3465,13 +3465,53 @@ int trilin_dp_probe(struct trilin_dpsub *dpsub, struct drm_device *drm)
 	dp->link_config.max_rate = dp->max_rate;
 
 	dp->phy_reset = devm_reset_control_get(dev, "phy_reset");
+	if (IS_ERR(dp->phy_reset))
+		return dev_err_probe(dev,
+				     PTR_ERR(dp->phy_reset) == -ENOENT ?
+				     -EPROBE_DEFER : PTR_ERR(dp->phy_reset),
+				     "failed to get phy_reset reset\n");
+
 	dp->reset = devm_reset_control_get(dev, "dp_reset");
+	if (IS_ERR(dp->reset))
+		return dev_err_probe(dev,
+				     PTR_ERR(dp->reset) == -ENOENT ?
+				     -EPROBE_DEFER : PTR_ERR(dp->reset),
+				     "failed to get dp_reset reset\n");
 
 	dpsub->apb_clk = devm_clk_get(dev, "apb_clk");
+	if (IS_ERR(dpsub->apb_clk))
+		return dev_err_probe(dev,
+				     PTR_ERR(dpsub->apb_clk) == -ENOENT ?
+				     -EPROBE_DEFER : PTR_ERR(dpsub->apb_clk),
+				     "failed to get apb_clk clock\n");
+
 	dpsub->vid_clk0 = devm_clk_get(dev, "vid_clk0");
+	if (IS_ERR(dpsub->vid_clk0))
+		return dev_err_probe(dev,
+				     PTR_ERR(dpsub->vid_clk0) == -ENOENT ?
+				     -EPROBE_DEFER : PTR_ERR(dpsub->vid_clk0),
+				     "failed to get vid_clk0 clock\n");
+
 	dpsub->vid_clk1 = devm_clk_get(dev, "vid_clk1");
+	if (IS_ERR(dpsub->vid_clk1))
+		return dev_err_probe(dev,
+				     PTR_ERR(dpsub->vid_clk1) == -ENOENT ?
+				     -EPROBE_DEFER : PTR_ERR(dpsub->vid_clk1),
+				     "failed to get vid_clk1 clock\n");
+
 	dpsub->vid_clk2 = devm_clk_get(dev, "vid_clk2");
+	if (IS_ERR(dpsub->vid_clk2))
+		return dev_err_probe(dev,
+				     PTR_ERR(dpsub->vid_clk2) == -ENOENT ?
+				     -EPROBE_DEFER : PTR_ERR(dpsub->vid_clk2),
+				     "failed to get vid_clk2 clock\n");
+
 	dpsub->vid_clk3 = devm_clk_get(dev, "vid_clk3");
+	if (IS_ERR(dpsub->vid_clk3))
+		return dev_err_probe(dev,
+				     PTR_ERR(dpsub->vid_clk3) == -ENOENT ?
+				     -EPROBE_DEFER : PTR_ERR(dpsub->vid_clk3),
+				     "failed to get vid_clk3 clock\n");
 
 	ret = dptx_register_audio_device(dp);
 	if (ret)
