@@ -197,12 +197,16 @@ static int pwm_sky1_probe(struct platform_device *pdev)
 
 	sky1->pclk = devm_clk_get(dev, "fch_pwm_apb_clk");
 	if (IS_ERR(sky1->pclk))
-		return dev_err_probe(dev, PTR_ERR(sky1->pclk),
+		return dev_err_probe(dev,
+				     PTR_ERR(sky1->pclk) == -ENOENT ?
+				     -EPROBE_DEFER : PTR_ERR(sky1->pclk),
 				     "failed to get apb clock\n");
 
 	sky1->tclk = devm_clk_get(dev, "fch_pwm_func_clk");
 	if (IS_ERR(sky1->tclk))
-		return dev_err_probe(dev, PTR_ERR(sky1->tclk),
+		return dev_err_probe(dev,
+				     PTR_ERR(sky1->tclk) == -ENOENT ?
+				     -EPROBE_DEFER : PTR_ERR(sky1->tclk),
 				     "failed to get func clock\n");
 
 	sky1->func_reset = devm_reset_control_get_optional_shared(dev, "func_reset");
