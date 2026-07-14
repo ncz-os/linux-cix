@@ -179,14 +179,14 @@ static int sky1_acpi_clk_probe(struct platform_device *pdev)
 		return dev_err_probe(&pdev->dev, priv->error,
 				     "Invalid ACPI CLKT entry\n");
 
-	if (priv->pending)
-		return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
-				     "%d ACPI CLKT entries not mapped yet\n",
-				     priv->pending);
-
 	if (priv->mapped == 0)
 		return dev_err_probe(&pdev->dev, -EPROBE_DEFER,
 				     "No SCMI clocks mapped yet\n");
+
+	if (priv->pending)
+		dev_dbg(&pdev->dev,
+			"%d ACPI CLKT entries still pending, dependent consumers will retry independently\n",
+			priv->pending);
 
 	dev_info(&pdev->dev, "Mapped %d ACPI clock lookup entries\n",
 		 priv->mapped);
