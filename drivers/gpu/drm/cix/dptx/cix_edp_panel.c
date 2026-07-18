@@ -41,6 +41,7 @@
 #include <drm/drm_panel.h>
 #include <linux/acpi.h>
 #include <linux/backlight.h>
+#include <linux/media-bus-format.h>
 #include "cix_edp_panel.h"
 
 /**
@@ -799,12 +800,20 @@ static int cix_edp_panel_of_get_desc_data(struct device *dev,
 		}
 	}
 
-	if (desc->num_modes || desc->num_timings) {
-		of_property_read_u32(np, "bpc", &desc->bpc);
-		of_property_read_u32(np, "bus-format", &desc->bus_format);
-		of_property_read_u32(np, "width-mm", &desc->size.width);
-		of_property_read_u32(np, "height-mm", &desc->size.height);
-	}
+	/*
+	 * device_property_* works on both OF and ACPI (_DSD); the platform's
+	 * ACPI CIXH5040 device provides width-mm/height-mm but no bpc or
+	 * bus-format, so fall back to the standard 8bpc/RGB888 default
+	 * rather than leaving these at 0 (invalid).
+	 */
+	device_property_read_u32(dev, "bpc", &desc->bpc);
+	device_property_read_u32(dev, "bus-format", &desc->bus_format);
+	device_property_read_u32(dev, "width-mm", &desc->size.width);
+	device_property_read_u32(dev, "height-mm", &desc->size.height);
+	if (desc->bus_format == 0)
+		desc->bus_format = MEDIA_BUS_FMT_RGB888_1X24;
+	if (desc->bpc != 6 && desc->bpc != 8)
+		desc->bpc = 8;
 
 	device_property_read_u32(dev, "prepare-delay-ms", &desc->delay.prepare);
 	device_property_read_u32(dev, "enable-delay-ms", &desc->delay.enable);
