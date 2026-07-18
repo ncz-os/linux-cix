@@ -342,11 +342,10 @@ static int scmi_hwmon_probe(struct scmi_device *sdev)
 			continue;
 
 		ret = sensor_ops->config_set(ph, i, sensor_config);
-		if (ret) {
-			dev_err(dev, "Error enabling sensor %s. err=%d\n",
+		if (ret)
+			dev_dbg(dev,
+				"Sensor %s: optional config_set unsupported by firmware, err=%d (continuing without it)\n",
 				sensor->name, ret);
-			continue;
-		}
 
 		/*
 		 * Warn on any misconfiguration related to thermal zones but
