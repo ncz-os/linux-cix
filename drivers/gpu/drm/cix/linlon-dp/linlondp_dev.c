@@ -656,8 +656,9 @@ struct linlondp_dev *linlondp_dev_create(struct device *dev)
 #if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
 	mdev->aclk = devm_clk_get(dev, "aclk");
 	if (IS_ERR(mdev->aclk)) {
-		DRM_ERROR("Get engine clk failed.\n");
-		err = PTR_ERR(mdev->aclk);
+		err = PTR_ERR(mdev->aclk) == -ENOENT ?
+			-EPROBE_DEFER : PTR_ERR(mdev->aclk);
+		dev_err_probe(dev, err, "Get engine clk failed.\n");
 		mdev->aclk = NULL;
 		goto err_cleanup;
 	}
