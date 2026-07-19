@@ -92,7 +92,9 @@ static int sky1_usb_clk_enable_all(struct device *dev)
 	for (i = 0; i < CIX_USB_CLK_NUM; i++) {
 		cix_usb_clks[i] = devm_clk_get(dev, cix_usb_clk_names[i]);
 		if (IS_ERR(cix_usb_clks[i])) {
-			ret = dev_err_probe(dev, PTR_ERR(cix_usb_clks[i]),
+			int clk_err = PTR_ERR(cix_usb_clks[i]) == -ENOENT ?
+				-EPROBE_DEFER : PTR_ERR(cix_usb_clks[i]);
+			ret = dev_err_probe(dev, clk_err,
 				"could not get %s clock\n", cix_usb_clk_names[i]);
 			goto err_usb_clks;
 		}
@@ -699,7 +701,9 @@ static int cdnsp_sky1_probe(struct platform_device *pdev)
 			struct clk *clk = devm_clk_get(dev,
 						       cix_usb_clk_names[i]);
 			if (IS_ERR(clk))
-				return dev_err_probe(dev, PTR_ERR(clk),
+				return dev_err_probe(dev,
+					PTR_ERR(clk) == -ENOENT ?
+					-EPROBE_DEFER : PTR_ERR(clk),
 					"could not get %s clock\n",
 					cix_usb_clk_names[i]);
 		}
