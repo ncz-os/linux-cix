@@ -376,16 +376,18 @@ static int cix_u3phy_probe(struct platform_device *pdev)
 				     "%s: failed to get preset\n", __func__);
 
 	u3phy->apb_clk = devm_clk_get(dev, "apb_clk");
-	if (IS_ERR(u3phy->apb_clk)) {
-		dev_err(dev, "phy apb clock not found\n");
-		return PTR_ERR(u3phy->apb_clk);
-	}
+	if (IS_ERR(u3phy->apb_clk))
+		return dev_err_probe(dev,
+				     PTR_ERR(u3phy->apb_clk) == -ENOENT ?
+				     -EPROBE_DEFER : PTR_ERR(u3phy->apb_clk),
+				     "phy apb clock not found\n");
 
 	u3phy->ref_clk = devm_clk_get(dev, "ref_clk");
-	if (IS_ERR(u3phy->apb_clk)) {
-		dev_err(dev, "phy apb clock not found\n");
-		return PTR_ERR(u3phy->apb_clk);
-	}
+	if (IS_ERR(u3phy->ref_clk))
+		return dev_err_probe(dev,
+				     PTR_ERR(u3phy->ref_clk) == -ENOENT ?
+				     -EPROBE_DEFER : PTR_ERR(u3phy->ref_clk),
+				     "phy ref clock not found\n");
 
 	u3phy->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(u3phy->base))
