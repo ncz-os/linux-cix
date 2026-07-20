@@ -1552,7 +1552,9 @@ static int cdns_i2c_probe(struct platform_device *pdev)
 
 	id->clk = devm_clk_get_enabled(&pdev->dev, NULL);
 	if (IS_ERR(id->clk))
-		return dev_err_probe(&pdev->dev, PTR_ERR(id->clk),
+		return dev_err_probe(&pdev->dev,
+				     PTR_ERR(id->clk) == -ENOENT ?
+				     -EPROBE_DEFER : PTR_ERR(id->clk),
 				     "input clock not found.\n");
 
 	id->reset = devm_reset_control_get_optional_shared(&pdev->dev, NULL);
