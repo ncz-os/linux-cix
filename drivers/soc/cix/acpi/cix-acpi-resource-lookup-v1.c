@@ -126,8 +126,18 @@ static int reset_lookup_handle(acpi_handle handle,
 			devm_kstrdup(dev, el[3].string.pointer, GFP_KERNEL)
 			: NULL;
 
-		if (!lookup->provider || (!lookup->dev_id && !lookup->con_id))
+		/*
+		 * reset_controller_add_lookup() requires both fields, and lookup
+		 * matching starts with dev_id before considering con_id.  The ACPI
+		 * name fallback above covers consumers not instantiated yet, so a
+		 * missing name here denotes an unresolved firmware reference.
+		 */
+		if (!lookup->provider || !lookup->dev_id) {
+			dev_dbg(&adev->dev,
+				"invalid RSTL[%d]: provider[%s] dev[%s] con[%s]\n",
+				i, lookup->provider, lookup->dev_id, lookup->con_id);
 			continue;
+		}
 
 		reset_controller_add_lookup(lookup, 1);
 
