@@ -324,11 +324,17 @@ static int sky1_timer_probe(struct platform_device *pdev)
 
 	sky1tm->pclk = devm_clk_get(&pdev->dev, "fch_timer_apb_clk");
 	if (IS_ERR(sky1tm->pclk))
-		return -EINVAL;
+		return dev_err_probe(&pdev->dev,
+				     PTR_ERR(sky1tm->pclk) == -ENOENT ?
+				     -EPROBE_DEFER : PTR_ERR(sky1tm->pclk),
+				     "failed to get fch_timer_apb_clk\n");
 
 	sky1tm->tclk = devm_clk_get(&pdev->dev, "fch_timer_func_clk");
 	if (IS_ERR(sky1tm->tclk))
-		return -EINVAL;
+		return dev_err_probe(&pdev->dev,
+				     PTR_ERR(sky1tm->tclk) == -ENOENT ?
+				     -EPROBE_DEFER : PTR_ERR(sky1tm->tclk),
+				     "failed to get fch_timer_func_clk\n");
 
 	clk_prepare_enable(sky1tm->pclk);
 	clk_prepare_enable(sky1tm->tclk);
