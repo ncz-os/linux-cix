@@ -3,9 +3,11 @@
 #include <linux/clk.h>
 #include <linux/module.h>
 #include <linux/mfd/syscon.h>
+#include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include "card-utils.h"
 #include <sound/jack.h>
+#include <sound/hdmi-codec.h>
 
 #define SKY1_AUDSS_CRU_INFO_MCLK		0x70
 #define SKY1_AUDSS_CRU_INFO_MCLK_DIV_OFF(x)	(10 + (3 * (x)))
@@ -803,6 +805,19 @@ static const char *cix_acpi_dp_audio_get_cpu_name(int idx)
 	return dev_name(&adev->dev);
 }
 
+/*
+ * A DP device has several children: the hdmi-codec platform device, an i2c
+ * adapter, and fw_devlink consumer:/supplier: link devices (plus a wakeup
+ * source). device_find_any_child() returns an arbitrary one, so match the
+ * hdmi-codec explicitly by its platform driver name.
+ */
+static int cix_dp_match_hdmi_codec(struct device *dev, const void *data)
+{
+	return dev->bus == &platform_bus_type &&
+	       to_platform_device(dev)->name &&
+	       !strcmp(to_platform_device(dev)->name, HDMI_CODEC_DRV_NAME);
+}
+
 static const char *cix_acpi_dp_audio_get_codec_name(int idx)
 {
 	struct acpi_device *adev;
@@ -824,10 +839,15 @@ static const char *cix_acpi_dp_audio_get_codec_name(int idx)
 	if (!dev)
 		return NULL;
 
-	dpdev = device_find_any_child(dev);
+	dpdev = device_find_child(dev, NULL, cix_dp_match_hdmi_codec);
 	if (!dpdev)
 		return NULL;
 
+	/*
+	 * dev_name() is correct here: the hdmi-codec ASoC component is
+	 * registered under the device name (hdmi-audio-codec.N.auto), which is
+	 * what snd_soc matches dai_link codecs->name against.
+	 */
 	return dev_name(dpdev);
 }
 
