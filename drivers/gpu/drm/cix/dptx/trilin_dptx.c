@@ -2492,7 +2492,7 @@ static int reset_dp_and_reinit(struct trilin_dp *dp)
 		reset_control_deassert(dp->reset);
 	}
 
-	if (!IS_ERR(dp->phy_reset)) {
+	if (!IS_ERR_OR_NULL(dp->phy_reset)) {
 		reset_control_assert(dp->phy_reset);
 		usleep_range(10, 20);
 		reset_control_deassert(dp->phy_reset);
@@ -3197,6 +3197,59 @@ end:
 	return 0;
 }
 
+/*
+ * Does this device's firmware actually describe @name in its @table
+ * (CLKT for clocks, RSTL for resets)?
+ *
+ * A bare -ENOENT from devm_clk_get()/devm_reset_control_get() is ambiguous:
+ * it means either "firmware never described this resource" or "firmware
+ * described it but the CIX CLKT/RSTL bridge has not registered its lookups
+ * yet". Only the first may be treated as an absent optional resource; the
+ * second must still defer, which is what commit "drm: cix: dptx: validate
+ * reset and clock lookups" arranged. Consult the firmware tables directly so
+ * the two cases can be told apart.
+ */
+static bool trilin_dp_fw_declares(struct device *dev, const char *table,
+				  const char *name)
+{
+	struct acpi_buffer buf = { ACPI_ALLOCATE_BUFFER, NULL };
+	struct acpi_device *adev = ACPI_COMPANION(dev);
+	union acpi_object *pkg;
+	bool found = false;
+	int i, j;
+
+	if (!adev)
+		return false;
+
+	if (ACPI_FAILURE(acpi_evaluate_object(adev->handle, (char *)table,
+					      NULL, &buf)))
+		return false;
+
+	pkg = buf.pointer;
+	if (pkg && pkg->type == ACPI_TYPE_PACKAGE) {
+		for (i = 0; i < pkg->package.count && !found; i++) {
+			union acpi_object *ent = &pkg->package.elements[i];
+
+			if (ent->type != ACPI_TYPE_PACKAGE)
+				continue;
+
+			for (j = 0; j < ent->package.count; j++) {
+				union acpi_object *f = &ent->package.elements[j];
+
+				if (f->type == ACPI_TYPE_STRING &&
+				    f->string.pointer &&
+				    !strcmp(f->string.pointer, name)) {
+					found = true;
+					break;
+				}
+			}
+		}
+	}
+
+	ACPI_FREE(buf.pointer);
+	return found;
+}
+
 int trilin_dp_init_config(struct trilin_dp *dp)
 {
 	int rc;
@@ -3464,12 +3517,23 @@ int trilin_dp_probe(struct trilin_dpsub *dpsub, struct drm_device *drm)
 	dp->link_config.max_lanes = dp->num_lanes;
 	dp->link_config.max_rate = dp->max_rate;
 
-	dp->phy_reset = devm_reset_control_get(dev, "phy_reset");
-	if (IS_ERR(dp->phy_reset))
-		return dev_err_probe(dev,
-				     PTR_ERR(dp->phy_reset) == -ENOENT ?
-				     -EPROBE_DEFER : PTR_ERR(dp->phy_reset),
-				     "failed to get phy_reset reset\n");
+	/*
+	 * phy_reset is absent from some firmware (e.g. Radxa Orion O6N, whose
+	 * DP RSTL declares only dp_reset). Its single use site is guarded, so
+	 * the driver already tolerates not having one. Keep deferring when
+	 * firmware does declare it but the lookup is not registered yet.
+	 */
+	if (!has_acpi_companion(dev) ||
+	    trilin_dp_fw_declares(dev, "RSTL", "phy_reset")) {
+		dp->phy_reset = devm_reset_control_get(dev, "phy_reset");
+		if (IS_ERR(dp->phy_reset))
+			return dev_err_probe(dev,
+					     PTR_ERR(dp->phy_reset) == -ENOENT ?
+					     -EPROBE_DEFER : PTR_ERR(dp->phy_reset),
+					     "failed to get phy_reset reset\n");
+	} else {
+		dp->phy_reset = NULL;
+	}
 
 	dp->reset = devm_reset_control_get(dev, "dp_reset");
 	if (IS_ERR(dp->reset))
@@ -3499,19 +3563,39 @@ int trilin_dp_probe(struct trilin_dpsub *dpsub, struct drm_device *drm)
 				     -EPROBE_DEFER : PTR_ERR(dpsub->vid_clk1),
 				     "failed to get vid_clk1 clock\n");
 
-	dpsub->vid_clk2 = devm_clk_get(dev, "vid_clk2");
-	if (IS_ERR(dpsub->vid_clk2))
-		return dev_err_probe(dev,
-				     PTR_ERR(dpsub->vid_clk2) == -ENOENT ?
-				     -EPROBE_DEFER : PTR_ERR(dpsub->vid_clk2),
-				     "failed to get vid_clk2 clock\n");
+	/*
+	 * vid_clk2 only drives DP_STREAM_2, which a two-stream firmware does not
+	 * expose. Absent from firmware means the stream cannot be selected;
+	 * declared-but-unregistered still defers.
+	 */
+	if (!has_acpi_companion(dev) ||
+	    trilin_dp_fw_declares(dev, "CLKT", "vid_clk2")) {
+		dpsub->vid_clk2 = devm_clk_get(dev, "vid_clk2");
+		if (IS_ERR(dpsub->vid_clk2))
+			return dev_err_probe(dev,
+					     PTR_ERR(dpsub->vid_clk2) == -ENOENT ?
+					     -EPROBE_DEFER : PTR_ERR(dpsub->vid_clk2),
+					     "failed to get vid_clk2 clock\n");
+	} else {
+		dpsub->vid_clk2 = NULL;
+	}
 
-	dpsub->vid_clk3 = devm_clk_get(dev, "vid_clk3");
-	if (IS_ERR(dpsub->vid_clk3))
-		return dev_err_probe(dev,
-				     PTR_ERR(dpsub->vid_clk3) == -ENOENT ?
-				     -EPROBE_DEFER : PTR_ERR(dpsub->vid_clk3),
-				     "failed to get vid_clk3 clock\n");
+	/*
+	 * vid_clk3 only drives DP_STREAM_3, which a two-stream firmware does not
+	 * expose. Absent from firmware means the stream cannot be selected;
+	 * declared-but-unregistered still defers.
+	 */
+	if (!has_acpi_companion(dev) ||
+	    trilin_dp_fw_declares(dev, "CLKT", "vid_clk3")) {
+		dpsub->vid_clk3 = devm_clk_get(dev, "vid_clk3");
+		if (IS_ERR(dpsub->vid_clk3))
+			return dev_err_probe(dev,
+					     PTR_ERR(dpsub->vid_clk3) == -ENOENT ?
+					     -EPROBE_DEFER : PTR_ERR(dpsub->vid_clk3),
+					     "failed to get vid_clk3 clock\n");
+	} else {
+		dpsub->vid_clk3 = NULL;
+	}
 
 	ret = dptx_register_audio_device(dp);
 	if (ret)
