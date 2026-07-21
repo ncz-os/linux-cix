@@ -55,7 +55,15 @@ void linlondp_pipeline_destroy(struct linlondp_dev *mdev,
 		linlondp_component_destroy(mdev, c);
 	}
 #if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
-	clk_put(pipe->pxlclk);
+	/*
+	 * The DT path takes pxlclk with of_clk_get_by_name() and must put it
+	 * here. The ACPI path uses devm_clk_get(), so devres already owns the
+	 * reference - putting it again double-frees and oopses in __clk_put()
+	 * on a LIST_POISON2 clks_node when the devres group is released.
+	 */
+	if (!has_acpi_companion(mdev->dev))
+		clk_put(pipe->pxlclk);
+	pipe->pxlclk = NULL;
 #endif
 	if (!has_acpi_companion(mdev->dev)) {
 		of_node_put(pipe->of_output_links[0]);
