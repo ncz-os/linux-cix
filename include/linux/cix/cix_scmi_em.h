@@ -13,14 +13,15 @@
  *              SCMI Message Protocol
  *
  * @dev: Device for which the EM is to register
+ * @perf_dev: Device attached to the SCMI performance domain
  *
  * Return: 0 for success; else the error code is returned
  */
-int cix_scmi_register_em(struct device *dev);
+int cix_scmi_register_em(struct device *dev, struct device *perf_dev);
 
 #else /* !CONFIG_CIX_SCMI_ENERGY_MODEL */
 
-static inline int cix_scmi_register_em(struct device *dev)
+static inline int cix_scmi_register_em(struct device *dev, struct device *perf_dev)
 {
 	return -EINVAL;
 }
