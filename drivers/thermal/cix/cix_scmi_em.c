@@ -6,48 +6,82 @@
  */
 
 #include <linux/energy_model.h>
+#include <linux/list.h>
+#include <linux/lockdep.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/pm_opp.h>
 #include <linux/scmi_protocol.h>
+#include <linux/scmi_perf_domain.h>
+#include <linux/slab.h>
 #include <linux/units.h>
-#include <linux/of.h>
 #include <linux/cix/cix_scmi_em.h>
 
 static struct scmi_protocol_handle *ph;
 static const struct scmi_perf_proto_ops *perf_ops;
 
-/*
- * SCMI v7.2 dropped perf_ops->device_domain_id(); resolve the perf domain
- * from the device clocks phandle like the old helper did (DT boot only).
- */
-static int cix_scmi_device_domain_id(struct device *dev)
-{
-	struct of_phandle_args clkspec;
+struct cix_scmi_em_ctx {
+	struct list_head node;
+	struct device *dev;
+	struct device *perf_dev;
+};
 
-	if (!dev->of_node ||
-	    of_parse_phandle_with_args(dev->of_node, "clocks", "#clock-cells",
-				       0, &clkspec))
-		return -EINVAL;
-	of_node_put(clkspec.np);
-	return clkspec.args[0];
+static DEFINE_MUTEX(cix_scmi_em_lock);
+static LIST_HEAD(cix_scmi_em_list);
+
+static struct cix_scmi_em_ctx *cix_scmi_em_find_ctx(struct device *dev)
+{
+	struct cix_scmi_em_ctx *ctx;
+
+	lockdep_assert_held(&cix_scmi_em_lock);
+
+	list_for_each_entry(ctx, &cix_scmi_em_list, node) {
+		if (ctx->dev == dev)
+			return ctx;
+	}
+
+	return NULL;
 }
 
+static void cix_scmi_em_release_ctx(void *data)
+{
+	struct cix_scmi_em_ctx *ctx = data;
+
+	mutex_lock(&cix_scmi_em_lock);
+	list_del(&ctx->node);
+	mutex_unlock(&cix_scmi_em_lock);
+}
+
+static struct device *cix_scmi_em_get_perf_dev(struct device *dev)
+{
+	struct cix_scmi_em_ctx *ctx;
+	struct device *perf_dev = NULL;
+
+	mutex_lock(&cix_scmi_em_lock);
+	ctx = cix_scmi_em_find_ctx(dev);
+	if (ctx)
+		perf_dev = ctx->perf_dev;
+	mutex_unlock(&cix_scmi_em_lock);
+
+	return perf_dev;
+}
 
 static int __maybe_unused
 cix_scmi_get_em_power(struct device *dev, unsigned long *power,
 		   unsigned long *KHz)
 {
-	enum scmi_power_scale power_scale = perf_ops->power_scale_get(ph);
+	struct device *perf_dev = cix_scmi_em_get_perf_dev(dev);
+	enum scmi_power_scale power_scale;
 	unsigned long Hz;
-	int ret, domain;
+	int ret;
 
-	domain = cix_scmi_device_domain_id(dev);
-	if (domain < 0)
-		return domain;
+	if (!perf_dev)
+		return -ENODEV;
 
-	/* Get the power from SCMI performance domain. */
+	power_scale = scmi_perf_domain_power_scale(perf_dev);
+
 	Hz = *KHz * 1000;
-	ret = perf_ops->est_power_get(ph, domain, &Hz, power);
+	ret = scmi_perf_domain_est_power(perf_dev, &Hz, power);
 	if (ret)
 		return ret;
 
@@ -59,27 +93,77 @@ cix_scmi_get_em_power(struct device *dev, unsigned long *power,
 	return 0;
 }
 
-int cix_scmi_register_em(struct device *dev)
+int cix_scmi_register_em(struct device *dev, struct device *perf_dev)
 {
 	struct em_data_callback em_cb = EM_DATA_CB(cix_scmi_get_em_power);
-	enum scmi_power_scale power_scale = perf_ops->power_scale_get(ph);
+	enum scmi_power_scale power_scale;
+	struct cix_scmi_em_ctx *ctx;
 	bool em_power_scale = false;
 	int ret, nr_opp;
 
-	if (power_scale == SCMI_POWER_MILLIWATTS
-	    || power_scale == SCMI_POWER_MICROWATTS)
+	if (!dev || IS_ERR_OR_NULL(perf_dev))
+		return -EINVAL;
+
+	mutex_lock(&cix_scmi_em_lock);
+	if (cix_scmi_em_find_ctx(dev)) {
+		mutex_unlock(&cix_scmi_em_lock);
+		return 0;
+	}
+	mutex_unlock(&cix_scmi_em_lock);
+
+	ctx = devm_kzalloc(dev, sizeof(*ctx), GFP_KERNEL);
+	if (!ctx)
+		return -ENOMEM;
+
+	ctx->dev = dev;
+	ctx->perf_dev = perf_dev;
+	power_scale = scmi_perf_domain_power_scale(ctx->perf_dev);
+
+	if (power_scale == SCMI_POWER_MILLIWATTS ||
+	    power_scale == SCMI_POWER_MICROWATTS) {
 		em_power_scale = true;
+	} else {
+		dev_err(dev, "SCMI perf domain does not report real power units\n");
+		ret = -EINVAL;
+		goto err_free_ctx;
+	}
+
+	mutex_lock(&cix_scmi_em_lock);
+	if (cix_scmi_em_find_ctx(dev)) {
+		mutex_unlock(&cix_scmi_em_lock);
+		ret = 0;
+		goto err_free_ctx;
+	}
+	list_add(&ctx->node, &cix_scmi_em_list);
+	mutex_unlock(&cix_scmi_em_lock);
+
+	ret = devm_add_action_or_reset(dev, cix_scmi_em_release_ctx, ctx);
+	if (ret)
+		return ret;
 
 	nr_opp = dev_pm_opp_get_opp_count(dev);
 	if (nr_opp <= 0) {
 		dev_err(dev, "Failed to get OPP counts\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err_release_ctx;
 	}
 
+	dev_info(dev, "cix EM: pre-register em_pd=%p nr_opp=%d uW=%d\n",
+		 dev->em_pd, nr_opp, em_power_scale);
 	ret = em_dev_register_perf_domain(dev, nr_opp, &em_cb, NULL, em_power_scale);
 	if (ret) {
 		dev_dbg(dev, "Couldn't register Energy Model %d\n", ret);
+		goto err_release_ctx;
 	}
+
+	return ret;
+
+err_release_ctx:
+	devm_remove_action(dev, cix_scmi_em_release_ctx, ctx);
+	cix_scmi_em_release_ctx(ctx);
+	return ret;
+
+err_free_ctx:
 	return ret;
 }
 EXPORT_SYMBOL_GPL(cix_scmi_register_em);
