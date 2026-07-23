@@ -574,6 +574,7 @@ int mvx_v4l2_session_construct(struct mvx_v4l2_session *vsession,
         vport->vsession = vsession;
         vport->dir = i;
         vport->q_set = false;
+        mutex_init(&vport->vb2_lock);
     }
 
     if (IS_ENABLED(CONFIG_DEBUG_FS)) {
