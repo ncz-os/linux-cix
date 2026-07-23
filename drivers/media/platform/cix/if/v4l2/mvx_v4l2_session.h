@@ -88,6 +88,7 @@ struct mvx_v4l2_port {
     unsigned int afbc_crop_top;
     struct dentry *dentry;
     bool q_set;
+    struct mutex vb2_lock;
     struct vb2_queue vb2_queue;
 };
 

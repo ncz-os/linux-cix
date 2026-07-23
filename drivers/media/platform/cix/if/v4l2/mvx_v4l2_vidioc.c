@@ -676,6 +676,16 @@ static int setup_vb2_queue(struct mvx_v4l2_port *vport)
     /* Let Vb2 handle mvx_v4l2_buffer allocations. */
     q->buf_struct_size = sizeof(struct mvx_v4l2_buffer);
 
+    /*
+     * From v6.x onwards vb2_core_queue_init() enforces a non-NULL
+     * q->lock (WARN_ON(!q->lock) -> -EINVAL), which breaks REQBUFS/
+     * CREATE_BUFS on the Sky1 7.0 kernel. amvx serialises every ioctl
+     * via vsession->mutex and never enters vb2 through the locking
+     * helpers, so give vb2 a dedicated per-port lock purely to satisfy
+     * the sanity check; it never contends with vsession->mutex.
+     */
+    q->lock = &vport->vb2_lock;
+
     ret = vb2_queue_init(q);
 
     return ret;
