@@ -4452,7 +4452,7 @@ static int arm_smmu_init_strtab_2lvl(struct arm_smmu_device *smmu)
 	/* Calculate the L1 size, capped to the SIDSIZE. */
 	cfg->l2.num_l1_ents = min(last_sid_idx + 1, STRTAB_MAX_L1_ENTRIES);
 	if (cfg->l2.num_l1_ents <= last_sid_idx)
-		dev_warn(smmu->dev,
+		dev_dbg(smmu->dev,
 			 "2-level strtab only covers %u/%u bits of SID\n",
 			 ilog2(cfg->l2.num_l1_ents * STRTAB_NUM_L2_STES),
 			 smmu->sid_bits);
@@ -4954,7 +4954,7 @@ static void arm_smmu_get_httu(struct arm_smmu_device *smmu, u32 reg)
 		smmu->features |= hw_features;
 	else if (hw_features != fw_features)
 		/* ACPI IORT sets the HTTU bits */
-		dev_warn(smmu->dev,
+		dev_dbg(smmu->dev,
 			 "IDR0.HTTU features(0x%x) overridden by FW configuration (0x%x)\n",
 			  hw_features, fw_features);
 }
@@ -5026,7 +5026,7 @@ static int arm_smmu_device_hw_probe(struct arm_smmu_device *smmu)
 	 * register, but warn on mismatch.
 	 */
 	if (!!(reg & IDR0_COHACC) != coherent)
-		dev_warn(smmu->dev, "IDR0.COHACC overridden by FW configuration (%s)\n",
+		dev_dbg(smmu->dev, "IDR0.COHACC overridden by FW configuration (%s)\n",
 			 str_true_false(coherent));
 
 	switch (FIELD_GET(IDR0_STALL_MODEL, reg)) {
