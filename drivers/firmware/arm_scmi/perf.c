@@ -302,7 +302,7 @@ scmi_perf_domain_attributes_get(const struct scmi_protocol_handle *ph,
 					/ dom_info->sustained_perf_level;
 			if ((dom_info->sustained_freq_khz * 1000UL) %
 			    dom_info->sustained_perf_level)
-				dev_warn(ph->dev,
+				dev_dbg(ph->dev,
 					 "multiplier for domain %d rounded\n",
 					 dom_info->id);
 		}
