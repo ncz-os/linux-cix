@@ -809,10 +809,25 @@ static int trilin_dp_aux_cmd_submit(struct trilin_dp *dp, u32 cmd, u32 addr,
 	bool is_read = (cmd & AUX_READ_BIT) ? true : false;
 	u32 reg, i;
 
-	reg = trilin_dp_read(dp, TRILIN_DPTX_AUX_STATUS);
+	/*
+	 * NCZ: at cold boot (and after an aborted transaction) the AUX engine
+	 * can still report a request/reply in progress from a prior command that
+	 * has not yet drained. Returning -EBUSY immediately here -- combined with
+	 * the missing retry in trilin_dp_aux_transfer() -- turned a transient busy
+	 * into a permanent DPCD/EDID read failure ("read dcpd caps failed") and a
+	 * black screen on the DP->HDMI converter path (CIXH502F:01). Poll for the
+	 * engine to drain (up to ~2ms) before giving up.
+	 */
+	for (i = 0; i < 20; i++) {
+		reg = trilin_dp_read(dp, TRILIN_DPTX_AUX_STATUS);
+		if (!(reg & (TRILIN_DPTX_AUX_STATUS_REQUEST_IN_PROGRESS |
+			     TRILIN_DPTX_AUX_STATUS_REPLY_IN_PROGRESS)))
+			break;
+		usleep_range(100, 150);
+	}
 	if (reg & (TRILIN_DPTX_AUX_STATUS_REQUEST_IN_PROGRESS |
 		   TRILIN_DPTX_AUX_STATUS_REPLY_IN_PROGRESS)) {
-		DP_DEBUG("TRILIN_DPTX_AUX_STATUS_REPLY_IN_PROGRESS\n");
+		DP_DEBUG("AUX engine still busy after drain wait\n");
 		return -EBUSY;
 	}
 	trilin_dp_write(dp, TRILIN_DPTX_AUX_ADDRESS, addr);
@@ -881,9 +896,9 @@ static ssize_t trilin_dp_aux_transfer(struct drm_dp_aux *aux,
 				      struct drm_dp_aux_msg *msg)
 {
 	struct trilin_dp *dp = container_of(aux, struct trilin_dp, aux);
-	int ret;
+	int ret = 0;
 	unsigned int i, iter;
-	size_t to_access, accessed_bytes;
+	size_t to_access = 0, accessed_bytes = 0;
 
 	/* Number of loops = timeout in msec / aux delay (400 usec) */
 	iter = trilin_dp_aux_timeout_ms * 1000 / 400;
@@ -896,6 +911,8 @@ static ssize_t trilin_dp_aux_transfer(struct drm_dp_aux *aux,
 		/* after sleep, maybe dp is disconnected, so check again */
 		if (!trilin_dp_get_hpd_state(dp))
 			goto err;
+
+		ret = 0;
 		do {
 			to_access = min_t(size_t, DP_AUX_MAX_PAYLOAD_BYTES,
 					  msg->size - accessed_bytes);
@@ -904,18 +921,33 @@ static ssize_t trilin_dp_aux_transfer(struct drm_dp_aux *aux,
 				dp, msg->request, msg->address + accessed_bytes,
 				msg->buffer + accessed_bytes, to_access,
 				&msg->reply);
-			if (ret && printk_ratelimit()) {
-				DP_ERR("failed to do aux transfer (%d)\n", ret);
-				goto err;
-			}
+			/*
+			 * NCZ: a transient AUX error (-EBUSY engine not yet drained,
+			 * -ETIMEDOUT no reply yet, -EIO short read) must NOT abort the
+			 * whole transfer. The original code did goto err on the first
+			 * error, defeating this very retry loop and turning a cold-boot
+			 * AUX hiccup into "read dpcd caps failed" -> no link training ->
+			 * black screen. Break out and let the outer loop back off and
+			 * re-submit the message.
+			 */
+			if (ret)
+				break;
 
 			accessed_bytes += to_access;
 		} while (accessed_bytes < msg->size);
 
-		if (accessed_bytes == msg->size)
+		if (!ret && accessed_bytes == msg->size)
 			break;
 
+		/* transient failure: back off (~400us) and retry the message */
 		usleep_range(400, 500);
+	}
+
+	if (ret) {
+		if (printk_ratelimit())
+			DP_ERR("failed to do aux transfer (%d) after %u retries\n",
+			       ret, i);
+		goto err;
 	}
 
 	dev_dbg(dp->dev, "aux done after %d retry\n", i);
@@ -2266,8 +2298,24 @@ static int trinlin_dp_panel_read_sink_caps(struct trilin_dp *dp)
 	struct drm_dp_aux *drm_aux = &dp->aux;
 	struct trilin_dp_link_config *config = &dp->link_config;
 
-	/*Fixme: may need sleep for ready...*/
-	rc = drm_dp_read_dpcd_caps(drm_aux, dp->dpcd);
+	/*
+	 * NCZ: the sink/converter DPCD may not be reachable on the very first
+	 * read at cold boot (AUX engine or DP->HDMI converter still settling).
+	 * Retry a few times with a short delay before declaring failure so a
+	 * marginally-late converter does not cost us the whole modeset.
+	 */
+	{
+		int caps_try;
+
+		for (caps_try = 0; caps_try < 5; caps_try++) {
+			rc = drm_dp_read_dpcd_caps(drm_aux, dp->dpcd);
+			if (!rc)
+				break;
+			DP_WARN("read dpcd caps failed (%d), retry %d/5\n",
+				rc, caps_try + 1);
+			msleep(20);
+		}
+	}
 	if (rc) {
 		DP_ERR("read dcpd caps failed...\n");
 		return rc;
