@@ -168,7 +168,7 @@ static int sky1_acpi_node_to_map(struct pinctrl_dev *pctldev,
 						  info->function.pins,
 						  info->function.npins);
 		if (!grp) {
-			dev_err(pctldev->dev, "Pin group cannot be found\n");
+			dev_dbg(pctldev->dev, "Pin group cannot be found\n");
 			ret = -1;
 			goto out_free;
 		}
@@ -201,7 +201,7 @@ static int sky1_acpi_node_to_map(struct pinctrl_dev *pctldev,
 		function_selector = info->function.function_number;
 		grp = pinctrl_generic_get_group_name(pctldev, info->function.group_number);
 		if (!grp) {
-			dev_err(pctldev->dev, "Pin group cannot be found\n");
+			dev_dbg(pctldev->dev, "Pin group cannot be found\n");
 			ret = -1;
 			goto out_free;
 		}
