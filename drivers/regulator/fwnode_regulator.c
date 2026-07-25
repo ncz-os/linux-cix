@@ -35,7 +35,7 @@ static void fwnode_get_regulator_prot_limits(struct fwnode_handle *np,
 				struct regulation_constraints *constraints)
 {
 	u32 pval;
-	int i, ret;
+	int i;
 	static const char *const props[] = {
 		"regulator-oc-%s-microamp",
 		"regulator-ov-%s-microvolt",
@@ -64,11 +64,9 @@ static void fwnode_get_regulator_prot_limits(struct fwnode_handle *np,
 
 		for (j = 0; j < ARRAY_SIZE(lvl); j++) {
 			snprintf(prop, 255, props[i], lvl[j]);
-			ret = fwnode_property_read_u32(np, prop, &pval);
-			if (!ret) {
+			found = !fwnode_property_read_u32(np, prop, &pval);
+			if (found)
 				fill_limit(l[j], pval);
-				found = true;
-			}
 			set[i] |= found;
 		}
 	}
