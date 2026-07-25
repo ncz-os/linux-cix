@@ -753,12 +753,37 @@ static int cdnsp_sky1_probe(struct platform_device *pdev)
 			}
 		}
 	}
+
+	/*
+	 * Mark the wrapper (CIXH2030) runtime-active and enable runtime PM
+	 * *before* the child controllers (CIXH2031/cdns,usbssp) are populated
+	 * and bound.  Each child calls pm_runtime_set_active() in its own
+	 * probe; if the parent wrapper is already runtime-PM-enabled but not
+	 * yet RPM_ACTIVE at that moment, the PM core logs, per child,
+	 *   "runtime PM trying to activate child device CIXH2031:0N but parent
+	 *    (CIXH2030:0N) is not active"
+	 * and, on the wrapper itself,
+	 *   "Enabling runtime PM for inactive device with active children".
+	 * The DT populate below binds children synchronously, and under ACPI
+	 * the children are enumerated asynchronously, so activating the parent
+	 * first makes the child activation legal in both cases.
+	 *
+	 * pm_suspend_ignore_children() additionally decouples this always-on
+	 * register/clock glue -- whose runtime suspend/resume are no-ops --
+	 * from the children's runtime-PM accounting, which also closes the
+	 * asynchronous ACPI probe-order window.
+	 */
+	device_set_wakeup_capable(dev, true);
+	pm_runtime_set_active(dev);
+	pm_suspend_ignore_children(dev, true);
+	pm_runtime_enable(dev);
+
 	if (!ACPI_COMPANION(dev)) {
 		cdns_sky1_auxdata->platform_data = cdns_sky1_pdata;
 		ret = of_platform_populate(node, NULL, cdns_sky1_auxdata, dev);
 		if (ret) {
 			dev_err(dev, "failed to create children: %d\n", ret);
-			goto err;
+			goto err_pm;
 		}
 	} else {
 		/*
@@ -782,15 +807,14 @@ static int cdnsp_sky1_probe(struct platform_device *pdev)
 			if (id && !cdev->platform_data)
 				cdev->platform_data = cdns_sky1_pdata;
 			else
-				goto err;
+				goto err_pm;
 		}
 	}
 
-	device_set_wakeup_capable(dev, true);
-	pm_runtime_set_active(dev);
-	pm_runtime_enable(dev);
 	return 0;
-err:
+err_pm:
+	pm_runtime_disable(dev);
+	pm_runtime_set_suspended(dev);
 	kfree(cdns_sky1_pdata);
 	return ret;
 }
