@@ -534,6 +534,33 @@ static int process_pin_group_config(struct pinctrl *p,
 	return ret;
 }
 
+/*
+ * Some boards do not wire out every peripheral the SoC ACPI tables describe
+ * (e.g. camera, unused USB or I2S debug). Their consumer _CRS still list a
+ * PinGroupFunction, but the pin controller never registers a matching group.
+ * Scan the controller groups without logging so an absent optional group can
+ * be treated as benign instead of spamming the console at error level.
+ */
+static bool acpi_pinctrl_group_present(struct pinctrl_dev *pctldev,
+				       const char *group)
+{
+	const struct pinctrl_ops *ops = pctldev->desc->pctlops;
+	unsigned int i, ngroups;
+
+	if (!ops || !ops->get_groups_count || !ops->get_group_name)
+		return false;
+
+	ngroups = ops->get_groups_count(pctldev);
+	for (i = 0; i < ngroups; i++) {
+		const char *name = ops->get_group_name(pctldev, i);
+
+		if (name && !strcmp(name, group))
+			return true;
+	}
+
+	return false;
+}
+
 static int
 process_pin_group_function(struct pinctrl *p,
 			   struct acpi_resource_pin_group_function *ares)
@@ -559,6 +586,13 @@ process_pin_group_function(struct pinctrl *p,
 	adev = ACPI_COMPANION(pctl_dev->dev);
 	if (ares->vendor_length > 0)
 		state_index = ares->vendor_data[0];
+	if (!acpi_pinctrl_group_present(pctl_dev, group)) {
+		dev_dbg(p->dev,
+			"optional pin group '%s' not present on this board, skipping\n",
+			group);
+		return 0;
+	}
+
 	gs = pinctrl_get_group_selector(pctl_dev, group);
 	ret = acpi_pin_group_function_to_pinctrl_map(p, pinctrl_acpi,
 						     gs,
