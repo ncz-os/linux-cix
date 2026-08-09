@@ -77,6 +77,33 @@ config USB_CDNSP_PCI
 	  If you choose to build this driver as module it will
 	  be dynamically linked and module will be called cdnsp-pci.ko
 
+config USB_CDNSP
+	tristate "Cadence USBSSP support on platform bus (non-PCI)"
+	default USB_CDNS3
+	help
+	  Say Y here if your system has a Cadence USBSSP dual-role controller
+	  on a platform bus (not PCI).
+
+	  This is required for SoCs with integrated CDNSP controllers whose
+	  firmware describes them via ACPI rather than device tree.
+
+	  If you choose to build this driver as a module, the module will
+	  be called cdnsp.ko.
+
+config USB_CDNSP_SKY1
+	tristate "Cadence USBSSP support on CIX Sky1 SoC platforms"
+	depends on USB_CDNSP
+	depends on ARCH_CIX || COMPILE_TEST
+	default USB_CDNSP
+	help
+	  Say Y or M here if you are building for CIX Sky1 SoCs
+	  platforms that contain Cadence USBSSP controller core.
+
+	  e.g. Sky1 (Orion O6).
+
+	  If you choose to build this driver as module it will
+	  be dynamically linked and module will be called cdnsp-sky1.ko
+
 config USB_CDNS3_TI
 	tristate "Cadence USB3 support on TI platforms"
 	depends on ARCH_K3 || COMPILE_TEST
