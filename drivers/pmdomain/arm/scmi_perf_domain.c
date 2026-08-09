@@ -24,6 +24,10 @@ struct scmi_perf_domain {
 	u32 domain_id;
 };
 
+/* Global protocol ops for use by drivers that need direct domain ID access */
+static const struct scmi_perf_proto_ops *global_perf_ops;
+static const struct scmi_protocol_handle *global_ph;
+
 #define to_scmi_pd(pd) container_of(pd, struct scmi_perf_domain, genpd)
 
 static int
@@ -112,15 +116,31 @@ static int match_proto_reg(struct acpi_device *adev, void *data)
 static struct fwnode_handle *scmi_perf_find_proto_fwnode(struct scmi_device *sdev)
 {
 	struct acpi_device *parent_adev;
+	struct fwnode_handle *fw = dev_fwnode(&sdev->dev);
 	struct proto_fwnode_match match = {
 		.protocol_id = sdev->protocol_id,
 		.result = NULL,
 	};
+	u32 reg;
 
 	if (sdev->dev.of_node)
 		return NULL;
 
-	parent_adev = to_acpi_device_node(dev_fwnode(&sdev->dev));
+	/*
+	 * Under ACPI the SCMI perf protocol device is created on the protocol
+	 * child node (e.g. \_SB.SCMI.DVFS with reg = SCMI_PROTOCOL_PERF).
+	 * Consumers reference that same node in power-domains; the provider
+	 * must be registered on its fwnode, not on a sibling search starting
+	 * from the protocol device as if it were the SCMI parent.
+	 */
+	if (fw && !fwnode_property_read_u32(fw, "reg", &reg) &&
+	    reg == sdev->protocol_id)
+		return fw;
+
+	/* Fallback: walk SCMI controller children (legacy / unusual layout). */
+	parent_adev = ACPI_COMPANION(sdev->dev.parent);
+	if (!parent_adev)
+		parent_adev = to_acpi_device_node(dev_fwnode(sdev->dev.parent));
 	if (!parent_adev)
 		return NULL;
 
@@ -154,6 +174,10 @@ static int scmi_perf_domain_probe(struct scmi_device *sdev)
 	perf_ops = handle->devm_protocol_get(sdev, SCMI_PROTOCOL_PERF, &ph);
 	if (IS_ERR(perf_ops))
 		return PTR_ERR(perf_ops);
+
+	/* Store global protocol ops for direct domain ID access */
+	global_perf_ops = perf_ops;
+	global_ph = ph;
 
 	num_domains = perf_ops->num_domains_get(ph);
 	if (num_domains < 0) {
@@ -347,6 +371,43 @@ int scmi_perf_domain_freq_get(struct device *dev, unsigned long *rate)
 	return pd->perf_ops->freq_get(pd->ph, pd->domain_id, rate, false);
 }
 EXPORT_SYMBOL_GPL(scmi_perf_domain_freq_get);
+
+/**
+ * scmi_perf_domain_est_power_by_id() - Get estimated power via SCMI by domain ID
+ * @domain_id: SCMI performance domain ID
+ * @rate:      [in/out] Frequency in Hz (may be adjusted by firmware)
+ * @power:     [out] Estimated power in firmware-native units
+ *
+ * This function allows drivers to access SCMI power estimates by direct
+ * domain ID, bypassing the genpd binding requirement. Useful for devices
+ * that are not attached to SCMI perf domain via power-domains property.
+ *
+ * Returns 0 on success, or negative error.
+ */
+int scmi_perf_domain_est_power_by_id(u32 domain_id, unsigned long *rate,
+				      unsigned long *power)
+{
+	if (!global_perf_ops)
+		return -ENODEV;
+
+	return global_perf_ops->est_power_get(global_ph, domain_id, rate, power);
+}
+EXPORT_SYMBOL_GPL(scmi_perf_domain_est_power_by_id);
+
+/**
+ * scmi_perf_domain_power_scale_by_id() - Get power scale by domain ID
+ * @domain_id: SCMI performance domain ID
+ *
+ * Returns the power scale enum, or SCMI_POWER_BOGOWATTS on error.
+ */
+enum scmi_power_scale scmi_perf_domain_power_scale_by_id(u32 domain_id)
+{
+	if (!global_perf_ops)
+		return SCMI_POWER_BOGOWATTS;
+
+	return global_perf_ops->power_scale_get(global_ph);
+}
+EXPORT_SYMBOL_GPL(scmi_perf_domain_power_scale_by_id);
 
 module_scmi_driver(scmi_perf_domain_driver);
 

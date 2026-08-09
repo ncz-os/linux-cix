@@ -17,6 +17,11 @@ int scmi_perf_domain_est_power(struct device *dev,
 enum scmi_power_scale scmi_perf_domain_power_scale(struct device *dev);
 int scmi_perf_domain_freq_get(struct device *dev, unsigned long *rate);
 
+/* Direct domain ID access variants (bypasses genpd binding requirement) */
+int scmi_perf_domain_est_power_by_id(u32 domain_id, unsigned long *rate,
+				      unsigned long *power);
+enum scmi_power_scale scmi_perf_domain_power_scale_by_id(u32 domain_id);
+
 #else
 
 static inline int scmi_perf_domain_est_power(struct device *dev,
@@ -34,6 +39,18 @@ static inline enum scmi_power_scale scmi_perf_domain_power_scale(struct device *
 static inline int scmi_perf_domain_freq_get(struct device *dev, unsigned long *rate)
 {
 	return -ENODEV;
+}
+
+static inline int scmi_perf_domain_est_power_by_id(u32 domain_id,
+						    unsigned long *rate,
+						    unsigned long *power)
+{
+	return -ENODEV;
+}
+
+static inline enum scmi_power_scale scmi_perf_domain_power_scale_by_id(u32 domain_id)
+{
+	return SCMI_POWER_BOGOWATTS;
 }
 
 #endif /* CONFIG_ARM_SCMI_PERF_DOMAIN */
