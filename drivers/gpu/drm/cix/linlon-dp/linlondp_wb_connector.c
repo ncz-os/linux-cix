@@ -76,10 +76,11 @@ static int linlondp_wb_encoder_atomic_check(struct drm_encoder *encoder,
 						      &dflow);
 	else if (dflow.en_split)
 		err = linlondp_build_wb_split_data_flow(wb_layer, conn_st,
-							kcrtc_st, &dflow);
+							kcrtc_st, conn_st->state,
+							&dflow);
 	else
 		err = linlondp_build_wb_data_flow(wb_layer, conn_st, kcrtc_st,
-						  &dflow);
+						  conn_st->state, &dflow);
 
 	return err;
 }
@@ -95,7 +96,11 @@ static int linlondp_wb_connector_get_modes(struct drm_connector *connector)
 
 static enum drm_mode_status
 linlondp_wb_connector_mode_valid(struct drm_connector *connector,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 15, 0)
 				 struct drm_display_mode *mode)
+#else
+				 const struct drm_display_mode *mode)
+#endif
 {
 	struct drm_device *dev = connector->dev;
 	struct drm_mode_config *mode_config = &dev->mode_config;
@@ -276,8 +281,10 @@ linlondp_wb_connector_create_color_prop(struct linlondp_wb_connector *wb_conn)
 {
 	struct drm_device *dev = wb_conn->base.base.dev;
 	struct drm_property *prop;
-	struct drm_prop_enum_list enum_list[max_t(int, DRM_COLOR_ENCODING_MAX,
-						  DRM_COLOR_RANGE_MAX)];
+	struct drm_prop_enum_list enum_list[(int)DRM_COLOR_ENCODING_MAX >
+			(int)DRM_COLOR_RANGE_MAX ?
+			(int)DRM_COLOR_ENCODING_MAX :
+			(int)DRM_COLOR_RANGE_MAX];
 	u32 supported_encoding = BIT(DRM_COLOR_YCBCR_BT601) |
 				 BIT(DRM_COLOR_YCBCR_BT709);
 	u32 supported_range = BIT(DRM_COLOR_YCBCR_LIMITED_RANGE) |
@@ -321,7 +328,7 @@ linlondp_wb_connector_create_color_prop(struct linlondp_wb_connector *wb_conn)
 static int linlondp_wb_connector_add(struct linlondp_kms_dev *kms,
 				     struct linlondp_crtc *kcrtc)
 {
-	struct linlondp_dev *mdev = kms->base.dev_private;
+	struct linlondp_dev *mdev = kcrtc->master->mdev;
 	struct linlondp_wb_connector *kwb_conn;
 	struct drm_writeback_connector *wb_conn;
 	struct drm_display_info *info;

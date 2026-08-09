@@ -11,6 +11,7 @@
 #include <linux/platform_device.h>
 #include <linux/fwnode.h>
 #include <linux/acpi.h>
+#include <linux/version.h>
 
 #include <drm/drm_of.h>
 #include <drm/drm_encoder.h>
@@ -235,9 +236,15 @@ cix_virtual_bind(struct device *comp, struct device *master,
 	}
 
 	/*  Set supported color formats */
+#if KERNEL_VERSION(7, 1, 0) > LINUX_VERSION_CODE
 	connector->display_info.color_formats = DRM_COLOR_FORMAT_RGB444   |
 						DRM_COLOR_FORMAT_YCBCR422 |
 						DRM_COLOR_FORMAT_YCBCR420;
+#else
+	connector->display_info.color_formats = BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444)   |
+						BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR422) |
+						BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR420);
+#endif
 
 	return 0;
 }
@@ -285,7 +292,11 @@ static int cix_virtual_probe(struct platform_device *pdev)
 	return component_add(dev, &cix_virtual_ops);
 }
 
+#if KERNEL_VERSION(6, 11, 0) > LINUX_VERSION_CODE
 static int cix_virtual_remove(struct platform_device *pdev)
+#else
+static void cix_virtual_remove(struct platform_device *pdev)
+#endif
 {
 	struct device *dev = &pdev->dev;
 
@@ -293,7 +304,9 @@ static int cix_virtual_remove(struct platform_device *pdev)
 
 	dev_set_drvdata(dev, NULL);
 
+#if KERNEL_VERSION(6, 11, 0) > LINUX_VERSION_CODE
 	return 0;
+#endif
 }
 
 struct platform_driver cix_virtual_driver = {

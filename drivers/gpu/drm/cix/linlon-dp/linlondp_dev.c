@@ -604,7 +604,7 @@ static int linlondp_gop_get(void)
 	return enabled_by_gop;
 }
 
-static void linlondp_gop_set(void)
+static void __maybe_unused linlondp_gop_set(void)
 {
 	struct arm_smccc_res res;
 	int dpu_gop_bit = 1;
@@ -634,10 +634,10 @@ struct linlondp_dev *linlondp_dev_create(struct device *dev)
 
 	mdev->dev = dev;
 
-    err = device_property_read_u32(dev, "enabled_by_gop",
-                               (u32 *)&mdev->enabled_by_gop);
-    if (err)
-        mdev->enabled_by_gop = 0;
+	err = device_property_read_u32(dev, "enabled_by_gop",
+				       (u32 *)&mdev->enabled_by_gop);
+	if (err)
+		mdev->enabled_by_gop = 0;
 
 	is_insmod = linlondp_gop_get();
 	if (is_insmod)
@@ -791,6 +791,11 @@ int linlondp_dev_resume(struct linlondp_dev *mdev)
 {
 	int err = 0;
 
+	if (!mdev || !mdev->dev) {
+		WARN_ON_ONCE(1);
+		return -EINVAL;
+	}
+
 	dev_info(mdev->dev, "%s\n", __func__);
 
 #if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
@@ -815,6 +820,11 @@ int linlondp_dev_resume(struct linlondp_dev *mdev)
 
 int linlondp_dev_suspend(struct linlondp_dev *mdev)
 {
+	if (!mdev || !mdev->dev) {
+		WARN_ON_ONCE(1);
+		return -EINVAL;
+	}
+
 	dev_info(mdev->dev, "%s\n", __func__);
 
 	if (mdev->iommu && mdev->funcs->disconnect_iommu)

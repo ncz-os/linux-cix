@@ -20,6 +20,8 @@
 #include <linux/phy/phy.h>
 #include <linux/reset.h>
 #include <linux/kernel.h>
+#include <linux/property.h>
+#include <linux/string.h>
 
 #include "trilin_dptx_reg.h"
 #include "trilin_host_tmr.h"
@@ -129,8 +131,36 @@ bool trilin_dp_plugged_status(struct trilin_dp *dp)
 	return (dp->status == connector_status_connected);
 }
 
+/* SST: match dp_panel.source_id to Linlon master pipeline id (pipe 0/1). */
+static void trilin_dp_sst_sync_source_id_from_crtc(struct trilin_dp *dp,
+						   struct drm_crtc *crtc)
+{
+	struct linlondp_crtc *kcrtc;
+	u32 src;
+
+	if (!dp || dp->mst.mst_active || !crtc)
+		return;
+
+	kcrtc = to_kcrtc(crtc);
+	if (!kcrtc->master)
+		return;
+
+	src = (u32)kcrtc->master->id;
+	if (src >= dp->max_streams) {
+		DP_ERR("master pipeline id %u >= max_streams %u\n", src,
+		       dp->max_streams);
+		return;
+	}
+
+	if (dp->dp_panel.source_id != src) {
+		DP_INFO("SST dp_panel.source_id %u -> %u (CRTC master pipeline)\n",
+			dp->dp_panel.source_id, src);
+		dp->dp_panel.source_id = src;
+	}
+}
+
 static int trilin_dp_connector_atomic_check(struct drm_connector *conn,
-					    struct drm_atomic_state *state)
+					    struct drm_atomic_commit *state)
 {
 	struct drm_connector_state *new_con_state =
 		drm_atomic_get_new_connector_state(state, conn);
@@ -153,6 +183,12 @@ static int trilin_dp_connector_atomic_check(struct drm_connector *conn,
 
 	if (!crtc)
 		return 0;
+
+	/*
+	 * atomic_check 里可见 new_con_state->crtc；drm 在 update_connector_routing
+	 * 里调 .best_encoder 时 connector->state 往往仍是旧状态，故在此再同步一次。
+	 */
+	trilin_dp_sst_sync_source_id_from_crtc(dp, crtc);
 
 	if (dp->caps.psr_sink_support && dp->psr_config_on)
 		new_con_state->self_refresh_aware = true;
@@ -356,14 +392,26 @@ static struct drm_encoder *
 trilin_dp_connector_best_encoder(struct drm_connector *connector)
 {
 	struct trilin_dp *dp = connector_to_dp(connector);
+	struct drm_connector_state *conn_st = connector->state;
 
 	DP_DEBUG("enter\n");
+
+	if (conn_st && conn_st->best_encoder)
+		return conn_st->best_encoder;
+
+	trilin_dp_sst_sync_source_id_from_crtc(dp,
+					       conn_st ? conn_st->crtc : NULL);
+
 	return &dp->encoder.base;
 }
 
 enum drm_mode_status
 trilin_dp_connector_mode_valid(struct drm_connector *connector,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 15, 0)
 			       struct drm_display_mode *mode)
+#else
+			       const struct drm_display_mode *mode)
+#endif
 {
 	struct trilin_dp *dp = connector_to_dp(connector);
 	//struct trilin_connector *conn = connector_to_trilin(connector);
@@ -545,7 +593,7 @@ static const struct drm_connector_helper_funcs
  */
 static
 struct drm_crtc *get_crtc_from_encoder(struct drm_encoder *encoder,
-					  struct drm_atomic_state *state)
+					  struct drm_atomic_commit *state)
 {
 	struct drm_connector *connector;
 	struct drm_connector_state *conn_state;
@@ -562,7 +610,7 @@ struct drm_crtc *get_crtc_from_encoder(struct drm_encoder *encoder,
 }
 
 static bool trilin_dp_handle_psr_disable(struct drm_encoder *encoder,
-				struct drm_atomic_state *state)
+				struct drm_atomic_commit *state)
 {
 	struct drm_crtc *crtc;
 	struct drm_crtc_state *old_crtc_state;
@@ -595,7 +643,7 @@ static bool is_same_mode_compare(struct trilin_dp *dp,
 	u32 hswidth, vswidth, hres, vres;
 	u32 hstart, vstart;
 	u32 link_rate, sec_data_window, sec_data_window_comp;
-	u32 regs_off = TRILIN_DPTX_SOURCE_OFFSET * dp_panel->stream_id;
+	u32 regs_off = TRILIN_DPTX_SOURCE_OFFSET * dp_panel->source_id;
 
 	htotal = trilin_dp_read(dp,
 				TRILIN_DPTX_SRC0_MAIN_STREAM_HTOTAL + regs_off);
@@ -633,7 +681,7 @@ static bool is_same_mode_compare(struct trilin_dp *dp,
 }
 
 static void trilin_dp_encoder_enable(struct drm_encoder *encoder,
-				struct drm_atomic_state *state)
+				struct drm_atomic_commit *state)
 {
 	struct trilin_dp *dp = encoder_to_dp(encoder);
 	struct trilin_dp_panel *dp_panel = &dp->dp_panel;
@@ -649,7 +697,8 @@ static void trilin_dp_encoder_enable(struct drm_encoder *encoder,
 	DP_INFO("enter\n");
 
 	if (dp->enabled_by_gop) {
-		if (is_same_mode_compare(dp, dp_panel) && !conn->vrr.enable) {
+		if (is_same_mode_compare(dp, dp_panel) && !conn->vrr.enable &&
+		    trilin_dp_link_trained(dp)) {
 			trilin_dp_write(dp, TRILIN_DPTX_INTERRUPT_MASK,
 					TRILIN_DPTX_INTERRUPT_CFG);
 		} else {
@@ -669,7 +718,7 @@ static void trilin_dp_encoder_enable(struct drm_encoder *encoder,
 	}
 
 	/*stream on*/
-	trilin_dp_set_stream_info(dp, dp_panel, 0, 0, 0);
+	trilin_dp_set_stream_info(dp, dp_panel, dp_panel->source_id, 0, 0);
 
 	rc = trilin_dp_enable(dp, dp_panel);
 	if (rc) {
@@ -679,16 +728,19 @@ static void trilin_dp_encoder_enable(struct drm_encoder *encoder,
 	/*update hdr and hdcp ? */
 	trilin_dp_post_enable(dp, dp_panel);
 	dp->enabled_by_gop = 0;
+
+	/* Arm PSR entry hold-off; see trilin_dp_psr_enable(). */
+	dp->psr.allow_after = ktime_add_ms(ktime_get(), 1000);
 }
 
 static void trilin_dp_encoder_disable(struct drm_encoder *encoder,
-				struct drm_atomic_state *state)
+				struct drm_atomic_commit *state)
 {
 	int rc;
 	struct trilin_dp *dp = encoder_to_dp(encoder);
 	struct trilin_dp_panel *dp_panel = &dp->dp_panel;
 	struct drm_crtc *crtc;
-	struct drm_crtc_state *new_crtc_state;
+	struct drm_crtc_state *new_crtc_state = NULL;
 
 	if (!(dp->state & DPTX_STATE_INITIALIZED)) {
 		DP_DEBUG("[not init]");
@@ -706,6 +758,14 @@ static void trilin_dp_encoder_disable(struct drm_encoder *encoder,
 		return;
 	}
 
+	/*
+	 * Full disable while the sink is still parked in PSR (suspend,
+	 * unplug, shutdown): drop PSR via DPCD before stream_off tries to
+	 * wait for sink resync that will never happen.
+	 */
+	if (dp->psr.active)
+		trilin_dp_psr_force_off(dp);
+
 	DP_INFO("enter\n");
 	rc = trilin_dp_pre_disable(dp, dp_panel);
 	if (rc)
@@ -722,6 +782,13 @@ static void trilin_dp_encoder_disable(struct drm_encoder *encoder,
 		DP_ERR("DP display unprepare failed, rc=%d\n", rc);
 		return;
 	}
+
+	/*
+	 * Userspace tore down the pipeline; slow replug should not reuse a
+	 * stale mode in hpd_plug_link_train. Fast replug still works because
+	 * mutter often has not disabled yet when HPD fires.
+	 */
+	dp->last_mode.valid = false;
 
 	DP_DEBUG("end\n");
 }
@@ -758,14 +825,27 @@ static u8 trilin_dp_cal_bpp(u8 bpc, int format)
 	u8 bpp = bpc * 3;
 
 	switch (format) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 1, 0)
 	case DRM_COLOR_FORMAT_RGB444:
 	case DRM_COLOR_FORMAT_YCBCR444:
+#else
+	case BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444):
+	case BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR444):
+#endif
 		bpp = bpc * 3;
 		break;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 1, 0)
 	case DRM_COLOR_FORMAT_YCBCR422:
+#else
+	case BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR422):
+#endif
 		bpp = bpc * 2;
 		break;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 1, 0)
 	case DRM_COLOR_FORMAT_YCBCR420:
+#else
+	case BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR420):
+#endif
 		bpp = bpc * 3 / 2;
 		break;
 	default:
@@ -872,22 +952,48 @@ int trilin_dp_encoder_atomic_adjust_mode(struct trilin_dp *dp,
 	return 0;
 }
 
+/*
+ * For DP-to-HDMI protocol converters:
+ * calculate the max pixel clock (kHz) allowed by the converter's TMDS
+ * character rate limit, reported via EDID max_tmds_clock (kHz).
+ */
+static int trilin_dp_hdmi_max_pixel_clock_khz(int max_tmds_clock_khz, u8 bpp)
+{
+	if (WARN_ON(bpp == 0))
+		return 0;
+	return DIV_ROUND_CLOSEST(max_tmds_clock_khz * 24, bpp);
+}
+
 static bool compute_available_clock_rate(struct trilin_dp *dp,
 		struct drm_connector_state *connector_state, u8 suggest_bpc,
 		int clock, int color_format, int *rt_bpc, int *rt_bpp)
 {
+#if KERNEL_VERSION(7, 1, 0) > LINUX_VERSION_CODE
 	int min_bpc = (color_format == DRM_COLOR_FORMAT_RGB444) ? 6 : 8;
+#else
+	int min_bpc = (color_format == BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444)) ? 6 : 8;
+#endif
 	int bpc = max(suggest_bpc, min_bpc);
-	int bpp;
+	int bpp, max_pixel_clock;
 	u8 max_lanes = dp->link_config.max_lanes;
 	int rate, max_rate = dp->link_config.max_rate;
+	struct drm_display_info *info = &connector_state->connector->display_info;
 
 	for (; bpc >= min_bpc; bpc = bpc - 2) {
 		bpc = trilin_dp_cal_bpc(dp, connector_state, bpc);
 		bpp = trilin_dp_cal_bpp(bpc, color_format);
+
+		/* rate = max pixel clock (kHz) from DP link bandwidth */
 		rate = trilin_dp_max_rate(max_rate, max_lanes, bpp);
 
-		if (clock <= rate) {
+		max_pixel_clock = rate;
+		if (info->max_tmds_clock > 0)
+			max_pixel_clock = min(max_pixel_clock,
+					      trilin_dp_hdmi_max_pixel_clock_khz(
+						      info->max_tmds_clock, bpp));
+
+		/* clock is adjusted_mode->clock, also in kHz */
+		if (clock <= max_pixel_clock) {
 			*rt_bpc = bpc;
 			*rt_bpp = bpp;
 			return true;
@@ -918,24 +1024,50 @@ int trilin_dp_encoder_compute_config(struct drm_encoder *encoder,
 	u8 max_lanes = dp->link_config.max_lanes;
 	int link_rate = max_rate;
 
+#if KERNEL_VERSION(7, 1, 0) > LINUX_VERSION_CODE
 	if (!(info_formats & DRM_COLOR_FORMAT_RGB444)) {
 		info_formats |= DRM_COLOR_FORMAT_RGB444;
+#else
+	if (!(info_formats & BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444))) {
+		info_formats |= BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444);
+#endif
 		DP_WARN("info_format=%0x, force support RGB444", info->color_formats);
 	}
 
 	const int COMMON_COLORS_FORMATS[] = {
+#if KERNEL_VERSION(7, 1, 0) > LINUX_VERSION_CODE
 		DRM_COLOR_FORMAT_RGB444, DRM_COLOR_FORMAT_YCBCR422, DRM_COLOR_FORMAT_YCBCR420};
+#else
+		BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444), BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR422), BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR420)};
+#endif
 
-	for (i = 0; i < ARRAY_SIZE(COMMON_COLORS_FORMATS); i++) {
-		color_format = COMMON_COLORS_FORMATS[i];
-		if (info_formats & color_format ||
-			drm_mode_is_420_only(info, adjusted_mode)) {
-			success = compute_available_clock_rate(dp, connector_state, suggest_bpc,
-				adjusted_mode->clock, color_format, &bpc, &bpp);
-			if (success) {
-				if (color_format != DRM_COLOR_FORMAT_RGB444)
-					DP_INFO("Use YUV Format=0x%0x", color_format);
-				break;
+	if (drm_mode_is_420_only(info, adjusted_mode)) {
+		/* CEA YUV420-only timings must be driven as YCbCr 4:2:0 */
+#if KERNEL_VERSION(7, 1, 0) > LINUX_VERSION_CODE
+		color_format = DRM_COLOR_FORMAT_YCBCR420;
+#else
+		color_format = BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR420);
+#endif
+		success = compute_available_clock_rate(dp, connector_state, suggest_bpc,
+			adjusted_mode->clock, color_format, &bpc, &bpp);
+		if (success)
+			DP_INFO("YUV420-only mode: use YUV420 format");
+	} else {
+		for (i = 0; i < ARRAY_SIZE(COMMON_COLORS_FORMATS); i++) {
+			color_format = COMMON_COLORS_FORMATS[i];
+			if (info_formats & color_format) {
+				success = compute_available_clock_rate(dp, connector_state,
+					suggest_bpc, adjusted_mode->clock, color_format,
+					&bpc, &bpp);
+				if (success) {
+#if KERNEL_VERSION(7, 1, 0) > LINUX_VERSION_CODE
+					if (color_format != DRM_COLOR_FORMAT_RGB444)
+#else
+					if (color_format != BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444))
+#endif
+						DP_INFO("Use YUV Format=0x%0x", color_format);
+					break;
+				}
 			}
 		}
 	}
@@ -947,13 +1079,25 @@ int trilin_dp_encoder_compute_config(struct drm_encoder *encoder,
 	}
 
 	switch (color_format) {
+#if KERNEL_VERSION(7, 1, 0) > LINUX_VERSION_CODE
 	case DRM_COLOR_FORMAT_YCBCR444:
+#else
+	case BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR444):
+#endif
 		format = TRILIN_DPSUB_FORMAT_YCBCR444;
 		break;
+#if KERNEL_VERSION(7, 1, 0) > LINUX_VERSION_CODE
 	case DRM_COLOR_FORMAT_YCBCR422:
+#else
+	case BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR422):
+#endif
 		format = TRILIN_DPSUB_FORMAT_YCBCR422;
 		break;
+#if KERNEL_VERSION(7, 1, 0) > LINUX_VERSION_CODE
 	case DRM_COLOR_FORMAT_YCBCR420:
+#else
+	case BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR420):
+#endif
 		format = TRILIN_DPSUB_FORMAT_YCBCR420;
 		break;
 	default:
@@ -987,6 +1131,8 @@ int trilin_dp_encoder_compute_config(struct drm_encoder *encoder,
 	if (ret < 0)
 		return -EINVAL;
 
+	trilin_dp_record_last_mode(dp, adjusted_mode);
+
 	conn->config.format = format;
 	conn->config.colorspace = colorspace;
 	conn->config.bpc = bpc;
@@ -996,7 +1142,7 @@ int trilin_dp_encoder_compute_config(struct drm_encoder *encoder,
 	return 0;
 }
 
-int trilin_dp_encoder_atomic_check(struct drm_encoder *encoder,
+static int trilin_dp_encoder_atomic_check(struct drm_encoder *encoder,
 				  struct drm_crtc_state *crtc_state,
 				  struct drm_connector_state *connector_state)
 {
@@ -1117,6 +1263,7 @@ void trilin_dp_encoder_atomic_mode_set(
 	struct drm_display_mode *adjusted_mode = &crtc_state->adjusted_mode;
 
 	DP_INFO("set mode: %s %d", adjusted_mode->name, adjusted_mode->clock);
+	trilin_dp_record_last_mode(dp, adjusted_mode);
 	if (dp->force_pixel_per_cycle != 0) {
 		dp->pixel_per_cycle = dp->force_pixel_per_cycle;
 	} else {
@@ -1183,6 +1330,65 @@ static const struct drm_encoder_funcs trilin_dp_enc_funcs = {
 	.destroy = trilin_dp_encoder_destroy,
 };
 
+/**
+ * trilin_dp_source_id_from_peer_pipeline - derive SST source_id from Linlon pipeline
+ *
+ * When "cix,dp-source" is absent or invalid, walk the firmware graph from
+ * dev_fwnode() (Device Tree or ACPI _DSD graph) to the peer DPU pipeline node
+ * (parent of the remote endpoint's port) and use pipeline "reg", or the
+ * numeric suffix in name "pipeline@N" when reg is not present.
+ */
+static int trilin_dp_source_id_from_peer_pipeline(struct device *dp_dev,
+						  u32 max_streams, u32 *sid)
+{
+	const struct fwnode_handle *top = dev_fwnode(dp_dev);
+	struct fwnode_handle *ep = NULL;
+	struct fwnode_handle *remote_ep;
+	struct fwnode_handle *port_fw;
+	struct fwnode_handle *pipeline_fw;
+	u32 idx = U32_MAX;
+	const char *pn;
+	int err;
+
+	if (!top)
+		return -ENOENT;
+
+	fwnode_graph_for_each_endpoint(top, ep) {
+		remote_ep = fwnode_graph_get_remote_endpoint(ep);
+		if (!remote_ep)
+			continue;
+
+		port_fw = fwnode_get_parent(remote_ep);
+		fwnode_handle_put(remote_ep);
+		if (!port_fw)
+			continue;
+
+		pipeline_fw = fwnode_get_parent(port_fw);
+		fwnode_handle_put(port_fw);
+		if (!pipeline_fw)
+			continue;
+
+		err = fwnode_property_read_u32(pipeline_fw, "reg", &idx);
+		if (err) {
+			pn = fwnode_get_name(pipeline_fw);
+			if (pn && str_has_prefix(pn, "pipeline@"))
+				err = kstrtou32(pn + strlen("pipeline@"), 0, &idx);
+			else
+				err = -EINVAL;
+		}
+
+		fwnode_handle_put(pipeline_fw);
+
+		if (!err && idx < max_streams) {
+			*sid = idx;
+			fwnode_handle_put(ep);
+			return 0;
+		}
+	}
+
+	return -ENOENT;
+}
+
 int trilin_dp_drm_init(struct trilin_dpsub *dpsub)
 {
 	struct trilin_dp *dp = dpsub->dp;
@@ -1199,8 +1405,17 @@ int trilin_dp_drm_init(struct trilin_dpsub *dpsub)
 	conn->dp = dp;
 	conn->type = TRILIN_OUTPUT_DP;
 	/* Create the DRM encoder and connector. */
-	encoder->possible_crtcs = TRILIN_DPTX_POSSIBLE_CRTCS_SST;
-	drm_encoder_init(dp->drm[0], encoder, &trilin_dp_enc_funcs,
+	if (dpsub->preset_possible_crtcs)
+		encoder->possible_crtcs = dpsub->preset_possible_crtcs;
+	else if (dp->dev && dp->dev->of_node)
+		encoder->possible_crtcs = drm_of_find_possible_crtcs(dp->drm,
+								   dp->dev->of_node);
+	if (!encoder->possible_crtcs)
+		encoder->possible_crtcs = TRILIN_DPTX_POSSIBLE_CRTCS_SST;
+	DRM_INFO("DP encoder possible_crtcs=0x%x (from %s)\n",
+		 encoder->possible_crtcs,
+		 (dp->dev && dp->dev->of_node) ? "DT" : "fallback");
+	drm_encoder_init(dp->drm, encoder, &trilin_dp_enc_funcs,
 			 DRM_MODE_ENCODER_TMDS, NULL);
 
 	drm_encoder_helper_add(encoder, &trilin_dp_encoder_helper_funcs);
@@ -1209,9 +1424,10 @@ int trilin_dp_drm_init(struct trilin_dpsub *dpsub)
 	if (dp->edp_panel)
 		drm_mode_connector = DRM_MODE_CONNECTOR_eDP;
 
-	ret = drm_connector_init(encoder->dev, connector,
-				 &trilin_dp_connector_funcs,
-				 drm_mode_connector);
+	ret = drm_connector_init_with_ddc(encoder->dev, connector,
+					 &trilin_dp_connector_funcs,
+					 drm_mode_connector,
+					 &dp->aux.ddc);
 	if (ret) {
 		DP_ERR("failed to create the DRM connector\n");
 		return ret;
@@ -1227,8 +1443,24 @@ int trilin_dp_drm_init(struct trilin_dpsub *dpsub)
 	if (!IS_ERR_OR_NULL(dp->rcsu_iomem))
 		connector->ycbcr_420_allowed = true;
 	dp->dp_panel.connector = &dp->connector;
-	dp->dp_panel.stream_id = 0;
+	/* SST: single stream; source from DTS cix,dp-source or peer pipeline reg. */
+	dp->dp_panel.source_id = 0;
+	if (dp->dev) {
+		u32 dp_source = 0;
+		bool have = false;
+
+		if (device_property_read_u32(dp->dev, "cix,dp-source", &dp_source) == 0 &&
+		    dp_source < dp->max_streams) {
+			dp->dp_panel.source_id = dp_source;
+			have = true;
+		}
+		if (!have &&
+		    !trilin_dp_source_id_from_peer_pipeline(dp->dev, dp->max_streams,
+							    &dp_source))
+			dp->dp_panel.source_id = dp_source;
+	}
 	dp->connector.dp_panel = &dp->dp_panel;
+	DP_INFO("SST dp_panel.source_id=%u\n", dp->dp_panel.source_id);
 	/*
 	 * Some of the properties below require access to state, like bpc.
 	 */

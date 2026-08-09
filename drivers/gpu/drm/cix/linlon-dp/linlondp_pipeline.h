@@ -14,6 +14,9 @@
 #include "linlondp_color_mgmt.h"
 
 #define LINLONDP_MAX_PIPELINES 2
+/* Max disp-controller instances behind one DRM device (display cluster). */
+#define LINLONDP_MAX_CLUSTER_DPUS 5
+#define LINLONDP_MAX_KMS_CRTCS (LINLONDP_MAX_PIPELINES * LINLONDP_MAX_CLUSTER_DPUS)
 #define LINLONDP_PIPELINE_MAX_LAYERS 4
 #define LINLONDP_PIPELINE_MAX_SCALERS 2
 #define LINLONDP_COMPONENT_N_INPUTS 5
@@ -153,7 +156,7 @@ struct linlondp_component_output {
  * @linlondp_scaler_state
  */
 struct linlondp_component_state {
-	/** @obj: tracking component_state by drm_atomic_state */
+	/** @obj: tracking component_state by drm_atomic_commit */
 	struct drm_private_state obj;
 	/** @component: backpointer to the component */
 	struct linlondp_component *component;
@@ -382,7 +385,7 @@ struct linlondp_pipeline_funcs {
  * Represent a complete display pipeline and hold all functional components.
  */
 struct linlondp_pipeline {
-	/** @obj: link pipeline as private obj of drm_atomic_state */
+	/** @obj: link pipeline as private obj of drm_atomic_commit */
 	struct drm_private_obj obj;
 	/** @mdev: the parent linlondp_dev */
 	struct linlondp_dev *mdev;
@@ -458,10 +461,10 @@ struct linlondp_pipeline {
  *
  * NOTE:
  * Unlike the pipeline, pipeline_state doesn���t gather any component_state
- * into it. It because all component will be managed by drm_atomic_state.
+ * into it. It because all component will be managed by drm_atomic_commit.
  */
 struct linlondp_pipeline_state {
-	/** @obj: tracking pipeline_state by drm_atomic_state */
+	/** @obj: tracking pipeline_state by drm_atomic_commit */
 	struct drm_private_state obj;
 	/** @pipe: backpointer to the pipeline */
 	struct linlondp_pipeline *pipe;
@@ -551,28 +554,36 @@ void pipeline_composition_size(struct linlondp_crtc_state *kcrtc_st,
 			       bool side_by_side, u16 *hsize, u16 *vsize,
 			       bool is_overlap);
 
+struct drm_atomic_commit;
+
 int linlondp_build_layer_data_flow(struct linlondp_layer *layer,
 				   struct linlondp_plane_state *kplane_st,
 				   struct linlondp_crtc_state *kcrtc_st,
+				   struct drm_atomic_commit *drm_st,
 				   struct linlondp_data_flow_cfg *dflow);
 int linlondp_build_wb_data_flow(struct linlondp_layer *wb_layer,
 				struct drm_connector_state *conn_st,
 				struct linlondp_crtc_state *kcrtc_st,
+				struct drm_atomic_commit *drm_st,
 				struct linlondp_data_flow_cfg *dflow);
 int linlondp_build_display_data_flow(struct linlondp_crtc *kcrtc,
-				     struct linlondp_crtc_state *kcrtc_st);
+				     struct linlondp_crtc_state *kcrtc_st,
+				     struct drm_atomic_commit *drm_st);
 
 int linlondp_build_layer_split_data_flow(struct linlondp_layer *left,
 					 struct linlondp_plane_state *kplane_st,
 					 struct linlondp_crtc_state *kcrtc_st,
+					 struct drm_atomic_commit *drm_st,
 					 struct linlondp_data_flow_cfg *dflow);
 int linlondp_build_layer_sbs_data_flow(struct linlondp_layer *layer,
 				       struct linlondp_plane_state *kplane_st,
 				       struct linlondp_crtc_state *kcrtc_st,
+				       struct drm_atomic_commit *drm_st,
 				       struct linlondp_data_flow_cfg *dflow);
 int linlondp_build_wb_split_data_flow(struct linlondp_layer *wb_layer,
 				      struct drm_connector_state *conn_st,
 				      struct linlondp_crtc_state *kcrtc_st,
+				      struct drm_atomic_commit *drm_st,
 				      struct linlondp_data_flow_cfg *dflow);
 int linlondp_build_wb_sbs_data_flow(struct linlondp_crtc *kcrtc,
 				    struct drm_connector_state *conn_st,
@@ -580,15 +591,16 @@ int linlondp_build_wb_sbs_data_flow(struct linlondp_crtc *kcrtc,
 				    struct linlondp_data_flow_cfg *wb_dflow);
 
 int linlondp_release_unclaimed_resources(struct linlondp_pipeline *pipe,
-					 struct linlondp_crtc_state *kcrtc_st);
+					 struct linlondp_crtc_state *kcrtc_st,
+					 struct drm_atomic_commit *drm_st);
 
 struct linlondp_pipeline_state *
 linlondp_pipeline_get_old_state(struct linlondp_pipeline *pipe,
-				struct drm_atomic_state *state);
+				struct drm_atomic_commit *state);
 bool linlondp_pipeline_disable(struct linlondp_pipeline *pipe,
-			       struct drm_atomic_state *old_state);
+			       struct drm_atomic_commit *old_state);
 void linlondp_pipeline_update(struct linlondp_pipeline *pipe,
-			      struct drm_atomic_state *old_state);
+			      struct drm_atomic_commit *old_state);
 
 void linlondp_complete_data_flow_cfg(struct linlondp_layer *layer,
 				     struct linlondp_data_flow_cfg *dflow,

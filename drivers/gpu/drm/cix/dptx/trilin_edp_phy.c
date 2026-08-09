@@ -657,7 +657,7 @@ static const phy_voltage_conf_t dp_volt_cfg[] = {
 	{ 0x08A4, 0x0003, 0x0000, 0x0000 },
 };
 
-static const phy_voltage_conf_t edp_volt_high_cfg[] = {
+static const phy_voltage_conf_t edp_volt_high_cfg[] __maybe_unused = {
 	{ 0x08A4, 0x0003, 0x0027, 0x0000 }, // swing level == 0
 	{ 0x08A4, 0x0003, 0x0023, 0x0009 },
 	{ 0x08A4, 0x0003, 0x001E, 0x0010 },
@@ -1181,6 +1181,6 @@ trilin_phy_error_t trilin_edp_phy_register(struct trilin_dp *dp)
 	if (reg_val == TRILIN_EDP_PHY_ID)
 		phy->phy_ops = &edp_phy_ops;
 
-	DP_INFO("end\n");
+	DP_DEBUG("end\n");
 	return trilin_phy_error_none;
 }
