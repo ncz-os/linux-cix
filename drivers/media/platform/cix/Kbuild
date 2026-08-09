@@ -16,7 +16,24 @@ ccflags-y += $(EXTRA_CCFLAGS)
 ifeq ($(CONFIG_VIDEO_LINLON),)
 obj-m := amvx.o
 else
-obj-$(CONFIG_VIDEO_LINLON) := amvx.o
+# NCZ: do NOT build the in-tree amvx.ko.
+#
+# The VPU driver ships from the vendor as DKMS (cix-vpu-driver, dkms.conf sets
+# DEST_MODULE_LOCATION=/updates and BUILT_MODULE_NAME=amvx), and the DKMS copy
+# is NEWER than this in-tree snapshot: 1.0.2 carries the VP8 4096 frame-size fix
+# and the NV12 decoder-capture default, neither of which is in this tree.
+#
+# Building both puts two same-named amvx.ko on the system. modprobe prefers
+# updates/ over kernel/, so DKMS wins today - but if the DKMS build is ever
+# skipped (its BUILD_EXCLUSIVE_KERNEL gate keys on CONFIG_ARCH_CIX) the system
+# would silently fall back to THIS older driver, losing hardware GStreamer
+# decode with no diagnostic.
+#
+# CONFIG_VIDEO_LINLON stays enabled deliberately: it is what selects
+# VIDEOBUF2_DMA_SG / VIDEOBUF2_MEMOPS, which the DKMS amvx.ko links against
+# (see modules.dep). Disabling the symbol removes videobuf2 and breaks the
+# vendor driver.
+# obj-$(CONFIG_VIDEO_LINLON) := amvx.o
 endif
 
 # Add objects for if module.
