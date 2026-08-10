@@ -449,7 +449,7 @@ static int sky1_npu_probe(struct platform_device *p_dev)
 		goto npu_probe_failed;
 	}
 
-	dev_err(&p_dev->dev, "%s: armchina_aipu_probe done\n", __func__); //TODO dbg
+	dev_dbg(&p_dev->dev, "%s: armchina_aipu_probe done\n", __func__);
 
 #ifdef CONFIG_PM
     sky1_npu_pm_runtime_put(&p_dev->dev);

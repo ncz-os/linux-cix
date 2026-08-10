@@ -955,7 +955,7 @@ static int mvx_dev_probe(struct device *dev,
         goto devfreq_remove;
     }
 
-    MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_WARNING,
+    MVX_LOG_PRINT(&mvx_log_dev, MVX_LOG_INFO,
               "Linlon v%x identified. cores=%u, nlsid=%u, id=%u.",
               mvx_hwreg_get_hw_id(&ctx->hwreg),
               mvx_hwreg_get_ncores(&ctx->hwreg),

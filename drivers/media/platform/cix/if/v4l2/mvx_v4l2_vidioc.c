@@ -1441,7 +1441,7 @@ int mvx_v4l2_vidioc_s_parm(struct file *file,
         frameperiod = &a->parm.capture.timeperframe;
         if (frameperiod->numerator * session->fps_n != frameperiod->denominator * session->fps_d ||
             frameperiod->numerator == 0 || frameperiod->denominator == 0) {
-            MVX_SESSION_WARN(&session,
+            MVX_SESSION_INFO(&session,
                 "v4l2: Invalid frame period from client (%d/%d). Return %d/%d",
                 frameperiod->numerator, frameperiod->denominator, session->fps_n, session->fps_d);
             frameperiod->numerator = session->fps_d;
