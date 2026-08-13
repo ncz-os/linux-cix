@@ -166,10 +166,20 @@ static inline unsigned hub_power_on_good_delay(struct usb_hub *hub)
 {
 	unsigned delay = hub->descriptor->bPwrOn2PwrGood * 2;
 
-	if (!hub->hdev->parent)	/* root hub */
-		return delay;
-	else /* Wait at least 100 msec for power to become stable */
-		return max(delay, 100U);
+	/*
+	 * Root hubs used to get bPwrOn2PwrGood*2 with no floor, which on Sky1
+	 * is ~0, so INIT2/INIT3 run ~20/40ms after port power.  A downstream
+	 * hub behind that root port needs longer than that to re-attach, and
+	 * if it has not by the time INIT3 samples the port the connect is
+	 * simply never seen: the port stays PLS=Polling with CCS=1 and the hub
+	 * driver is never told to reset it.  Measured on O6N, where a VL812
+	 * carries the installation medium and nothing enumerated until the hub
+	 * driver was unbound and rebound by hand.
+	 *
+	 * Give root hubs the same 100ms floor as every other hub.  Cost is at
+	 * most ~100ms of boot on a port that would have been ready anyway.
+	 */
+	return max(delay, 100U);
 }
 
 static inline int hub_port_debounce_be_connected(struct usb_hub *hub,
