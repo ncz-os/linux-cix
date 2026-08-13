@@ -768,14 +768,23 @@ static int cdnsp_sky1_probe(struct platform_device *pdev)
 	 * the children are enumerated asynchronously, so activating the parent
 	 * first makes the child activation legal in both cases.
 	 *
-	 * pm_suspend_ignore_children() additionally decouples this always-on
-	 * register/clock glue -- whose runtime suspend/resume are no-ops --
-	 * from the children's runtime-PM accounting, which also closes the
-	 * asynchronous ACPI probe-order window.
+	 * Do NOT call pm_suspend_ignore_children() here.  Decoupling the
+	 * wrapper from its children's runtime-PM accounting lets the wrapper
+	 * runtime-suspend while its xHCI child is active, and a suspended
+	 * wrapper does not service port-change events: the port sits at
+	 * PLS=Polling with CCS=1 (device present, never reset), the hub driver
+	 * is never told, and nothing enumerates.  Measured on O6N 7.2 vs the
+	 * working 7.0.12 on MS-R1:
+	 *
+	 *   7.0.12 MS-R1 (works)  CIXH2030 wrappers active,    children active
+	 *   7.2    O6N   (broken) CIXH2030 wrappers SUSPENDED, children active
+	 *
+	 * Letting the always-active children pin the parent -- which is what
+	 * 7.0.12 does -- costs only the cosmetic "Enabling runtime PM for
+	 * inactive device with active children" warning this had silenced.
 	 */
 	device_set_wakeup_capable(dev, true);
 	pm_runtime_set_active(dev);
-	pm_suspend_ignore_children(dev, true);
 	pm_runtime_enable(dev);
 
 	if (!ACPI_COMPANION(dev)) {
