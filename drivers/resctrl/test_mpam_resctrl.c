@@ -133,6 +133,27 @@ static void test_get_mba_granularity(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, ret, 1);	/* DIV_ROUND_UP(100, 1 << 16)% = 1% */
 }
 
+static void test_mbw_prop_control_init(struct kunit *test)
+{
+	struct mpam_class class = { };
+	struct mpam_resctrl_res res = {
+		.class = &class,
+		.resctrl_res.rid = RDT_RESOURCE_MBW_PROP,
+	};
+
+	mpam_set_feature(mpam_feat_mbw_prop, &class.props);
+	class.props.bwa_wd = 6;
+
+	KUNIT_ASSERT_EQ(test, mpam_resctrl_control_init(&res), 0);
+	KUNIT_EXPECT_STREQ(test, res.resctrl_res.name, "MB_PROP");
+	KUNIT_EXPECT_EQ(test, res.resctrl_res.schema_fmt,
+			RESCTRL_SCHEMA_RANGE);
+	KUNIT_EXPECT_EQ(test, res.resctrl_res.membw.min_bw, 0);
+	KUNIT_EXPECT_EQ(test, res.resctrl_res.membw.max_bw, 63);
+	KUNIT_EXPECT_EQ(test, res.resctrl_res.membw.bw_gran, 1);
+	KUNIT_EXPECT_EQ(test, res.resctrl_res.membw.reset_val, 0);
+}
+
 static void test_mbw_max_to_percent(struct kunit *test)
 {
 	const struct percent_value_case *param = test->param_value;
@@ -298,6 +319,7 @@ static void test_percent_to_max_rounding(struct kunit *test)
 
 static struct kunit_case mpam_resctrl_test_cases[] = {
 	KUNIT_CASE(test_get_mba_granularity),
+	KUNIT_CASE(test_mbw_prop_control_init),
 	KUNIT_CASE_PARAM(test_mbw_max_to_percent, test_percent_value_gen_params),
 	KUNIT_CASE_PARAM(test_percent_to_mbw_max, test_percent_value_gen_params),
 	KUNIT_CASE_PARAM(test_mbw_max_to_percent_limits, test_all_bwa_wd_gen_params),
