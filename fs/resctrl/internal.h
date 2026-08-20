@@ -41,6 +41,7 @@ struct rdt_fs_context {
 	bool				enable_cdpl2;
 	bool				enable_cdpl3;
 	bool				enable_mba_mbps;
+	bool				enable_mbw_prop;
 	bool				enable_debug;
 };
 

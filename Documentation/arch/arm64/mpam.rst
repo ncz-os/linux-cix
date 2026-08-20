@@ -61,6 +61,21 @@ The supported features are:
   When the MPAM driver finds multiple groups of MSC it can use for the 'MB'
   schema, it prefers the group closest to the L3 cache.
 
+* Memory bandwidth proportional-stride controls (MBW_PROP) on or after the
+  L3 cache. These use the same topology requirements and class-selection
+  policy as MBW_MAX. Mount resctrl with ``-o mbw_prop`` to expose the
+  ``MB_PROP`` schema. The schema contains the hardware stride-minus-one value:
+  zero selects stride one and the maximum is shown by
+  ``info/MB_PROP/max_bandwidth``. Lower values receive more bandwidth when
+  traffic contends; the control does not impose an absolute bandwidth limit.
+
+  A published Sky1 evaluation found that enabling proportional-stride control
+  reduced interference, but increasing an interferer's stride beyond zero
+  provided negligible additional benefit in its saturated workload. The
+  reverse experiment reduced the target's bandwidth in nearly every case.
+  Results remain workload and implementation dependent; use non-zero values
+  only after measuring the intended workload [1]_.
+
 * Cache Storage Usage (CSU) counters can expose the 'llc_occupancy' provided
   there is at least one CSU monitor on each MSC that makes up the L3 group.
   Exposing CSU counters from other caches or devices is not supported.
@@ -70,3 +85,10 @@ Reporting Bugs
 If you are not seeing the counters or controls you expect please share the
 debug messages produced when enabling dynamic debug and booting with:
 dyndbg="file mpam_resctrl.c +pl"
+
+References
+==========
+
+.. [1] Ashutosh Pradhan et al., "Work-in-Progress: A First Practical Look at
+       Arm's MPAM for Real-Time Systems",
+       https://rtsl.cps.mw.tum.de/media/publication/125/2025_rtss_wip_mpam.pdf
