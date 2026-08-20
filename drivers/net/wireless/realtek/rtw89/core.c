@@ -7318,6 +7318,26 @@ static int rtw89_chip_board_info_setup(struct rtw89_dev *rtwdev)
 
 static bool rtw89_chip_has_rfkill(struct rtw89_dev *rtwdev)
 {
+	static const struct dmi_system_id no_hw_rfkill_dmi[] = {
+		{
+			.matches = {
+				DMI_MATCH(DMI_SYS_VENDOR, "Radxa Computer (Shenzhen) Co., Ltd."),
+				DMI_MATCH(DMI_PRODUCT_NAME, "Radxa Orion O6"),
+			},
+		},
+		{
+			.matches = {
+				DMI_MATCH(DMI_SYS_VENDOR, "Radxa Computer (Shenzhen) Co., Ltd."),
+				DMI_MATCH(DMI_PRODUCT_NAME, "Radxa Orion O6N"),
+			},
+		},
+		{ }
+	};
+
+	if (rtwdev->chip->chip_id == RTL8852B &&
+	    dmi_check_system(no_hw_rfkill_dmi))
+		return false;
+
 	return !!rtwdev->chip->rfkill_init;
 }
 
