@@ -297,6 +297,7 @@ struct mpam_class {
 	cpumask_t		affinity;
 
 	struct mpam_props	props;
+	bool			mbw_prop_enabled;
 	u32			nrdy_usec;
 	u16			quirks;
 	u8			level;
@@ -318,6 +319,7 @@ struct mpam_config {
 	u32	cpbm;
 	u32	mbw_pbm;
 	u16	mbw_max;
+	u16	mbw_prop;
 
 	struct mpam_garbage	garbage;
 };
@@ -458,6 +460,7 @@ void mpam_disable(struct work_struct *work);
 
 /* Reset all the RIS in a class under cpus_read_lock() */
 void mpam_reset_class_locked(struct mpam_class *class);
+void mpam_enable_mbw_prop_locked(struct mpam_class *class);
 
 int mpam_apply_config(struct mpam_component *comp, u16 partid,
 		      struct mpam_config *cfg);

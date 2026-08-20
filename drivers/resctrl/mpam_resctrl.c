@@ -167,6 +167,45 @@ bool resctrl_arch_get_cdp_enabled(enum resctrl_res_level rid)
 	return mpam_resctrl_controls[rid].cdp_enabled;
 }
 
+bool resctrl_arch_get_mbw_prop_enabled(void)
+{
+	struct mpam_resctrl_res *res =
+		&mpam_resctrl_controls[RDT_RESOURCE_MBW_PROP];
+
+	return res->class && res->class->mbw_prop_enabled;
+}
+
+bool resctrl_arch_control_enabled(struct rdt_resource *r)
+{
+	if (r->rid == RDT_RESOURCE_MBW_PROP)
+		return resctrl_arch_get_mbw_prop_enabled();
+
+	return true;
+}
+
+int resctrl_arch_set_mbw_prop_enabled(bool enable)
+{
+	struct mpam_resctrl_res *res =
+		&mpam_resctrl_controls[RDT_RESOURCE_MBW_PROP];
+
+	if (!res->class)
+		return enable ? -EOPNOTSUPP : 0;
+
+	if (enable && cdp_enabled)
+		return -EINVAL;
+
+	if (res->class->mbw_prop_enabled == enable)
+		return 0;
+
+	res->class->mbw_prop_enabled = enable;
+	if (enable)
+		mpam_enable_mbw_prop_locked(res->class);
+	else
+		mpam_reset_class_locked(res->class);
+
+	return 0;
+}
+
 /**
  * resctrl_reset_task_closids() - Reset the PARTID/PMG values for all tasks.
  *
@@ -579,11 +618,6 @@ static bool mba_class_use_mbw_max(struct mpam_props *cprops)
 		cprops->bwa_wd);
 }
 
-static bool class_has_usable_mba(struct mpam_props *cprops)
-{
-	return mba_class_use_mbw_max(cprops);
-}
-
 static bool cache_has_usable_csu(struct mpam_class *class)
 {
 	struct mpam_props *cprops;
@@ -867,7 +901,8 @@ static void mpam_resctrl_pick_caches(void)
 	}
 }
 
-static void mpam_resctrl_pick_mba(void)
+static void mpam_resctrl_pick_mbw(enum mpam_device_features feature,
+				  enum resctrl_res_level rid)
 {
 	struct mpam_class *class, *candidate_class = NULL;
 	struct mpam_resctrl_res *res;
@@ -884,8 +919,8 @@ static void mpam_resctrl_pick_mba(void)
 			continue;
 		}
 
-		if (!class_has_usable_mba(cprops)) {
-			pr_debug("class %u has no bandwidth control\n",
+		if (!cprops->bwa_wd || !mpam_has_feature(feature, cprops)) {
+			pr_debug("class %u lacks requested bandwidth control\n",
 				 class->level);
 			continue;
 		}
@@ -908,19 +943,18 @@ static void mpam_resctrl_pick_mba(void)
 		}
 
 		/*
-		 * Pick a resource to be MBA that as close as possible to
-		 * the L3. mbm_total counts the bandwidth leaving the L3
-		 * cache and MBA should correspond as closely as possible
-		 * for proper operation of mba_sc.
+		 * Pick the bandwidth control closest to the L3. mbm_total
+		 * counts the bandwidth leaving the L3 and MBW_MAX should
+		 * correspond as closely as possible for mba_sc.
 		 */
 		if (!candidate_class || class->level < candidate_class->level)
 			candidate_class = class;
 	}
 
 	if (candidate_class) {
-		pr_debug("selected class %u to back MBA\n",
-			 candidate_class->level);
-		res = &mpam_resctrl_controls[RDT_RESOURCE_MBA];
+		pr_debug("selected class %u to back resource %u\n",
+			 candidate_class->level, rid);
+		res = &mpam_resctrl_controls[rid];
 		res->class = candidate_class;
 	}
 }
@@ -1030,8 +1064,19 @@ static int mpam_resctrl_control_init(struct mpam_resctrl_res *res)
 		r->membw.min_bw = get_mba_min(cprops);
 		r->membw.max_bw = MAX_MBA_BW;
 		r->membw.bw_gran = get_mba_granularity(cprops);
+		r->membw.reset_val = MAX_MBA_BW;
 
 		r->name = "MB";
+		r->alloc_capable = true;
+		break;
+	case RDT_RESOURCE_MBW_PROP:
+		r->schema_fmt = RESCTRL_SCHEMA_RANGE;
+		r->ctrl_scope = RESCTRL_L3_CACHE;
+		r->membw.min_bw = 0;
+		r->membw.max_bw = BIT(cprops->bwa_wd) - 1;
+		r->membw.bw_gran = 1;
+		r->membw.reset_val = 0;
+		r->name = "MB_PROP";
 		r->alloc_capable = true;
 		break;
 	default:
@@ -1149,11 +1194,15 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct rdt_ctrl_domain *d,
 		configured_by = mpam_feat_cpor_part;
 		break;
 	case RDT_RESOURCE_MBA:
-		if (mpam_has_feature(mpam_feat_mbw_max, cprops)) {
-			configured_by = mpam_feat_mbw_max;
-			break;
-		}
-		fallthrough;
+		if (!mpam_has_feature(mpam_feat_mbw_max, cprops))
+			return resctrl_get_default_ctrl(r);
+		configured_by = mpam_feat_mbw_max;
+		break;
+	case RDT_RESOURCE_MBW_PROP:
+		if (!mpam_has_feature(mpam_feat_mbw_prop, cprops))
+			return resctrl_get_default_ctrl(r);
+		configured_by = mpam_feat_mbw_prop;
+		break;
 	default:
 		return resctrl_get_default_ctrl(r);
 	}
@@ -1167,6 +1216,8 @@ u32 resctrl_arch_get_config(struct rdt_resource *r, struct rdt_ctrl_domain *d,
 		return cfg->cpbm;
 	case mpam_feat_mbw_max:
 		return mbw_max_to_percent(cfg->mbw_max, cprops);
+	case mpam_feat_mbw_prop:
+		return cfg->mbw_prop;
 	default:
 		return resctrl_get_default_ctrl(r);
 	}
@@ -1218,12 +1269,19 @@ int resctrl_arch_update_one(struct rdt_resource *r, struct rdt_ctrl_domain *d,
 		mpam_set_feature(mpam_feat_cpor_part, &cfg);
 		break;
 	case RDT_RESOURCE_MBA:
-		if (mpam_has_feature(mpam_feat_mbw_max, cprops)) {
-			cfg.mbw_max = percent_to_mbw_max(cfg_val, cprops);
-			mpam_set_feature(mpam_feat_mbw_max, &cfg);
-			break;
-		}
-		fallthrough;
+		if (!mpam_has_feature(mpam_feat_mbw_max, cprops))
+			return -EINVAL;
+		cfg.mbw_max = percent_to_mbw_max(cfg_val, cprops);
+		mpam_set_feature(mpam_feat_mbw_max, &cfg);
+		break;
+	case RDT_RESOURCE_MBW_PROP:
+		if (!mpam_has_feature(mpam_feat_mbw_prop, cprops))
+			return -EINVAL;
+		if (cfg_val)
+			pr_warn_once("MPAM MBW_PROP: published Sky1 tests found little additional benefit from non-zero interferer strides\n");
+		cfg.mbw_prop = cfg_val;
+		mpam_set_feature(mpam_feat_mbw_prop, &cfg);
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -1612,7 +1670,8 @@ int mpam_resctrl_setup(void)
 
 	/* Find some classes to use for controls */
 	mpam_resctrl_pick_caches();
-	mpam_resctrl_pick_mba();
+	mpam_resctrl_pick_mbw(mpam_feat_mbw_max, RDT_RESOURCE_MBA);
+	mpam_resctrl_pick_mbw(mpam_feat_mbw_prop, RDT_RESOURCE_MBW_PROP);
 
 	/* Initialise the resctrl structures from the classes */
 	for_each_mpam_resctrl_control(res, rid) {

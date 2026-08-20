@@ -382,7 +382,35 @@ static void test_mpam_reset_msc_bitmap(struct kunit *test)
 	mutex_unlock(&fake_msc.part_sel_lock);
 }
 
+static void test_mbw_prop_config(struct kunit *test)
+{
+	struct mpam_config cfg = { };
+
+	KUNIT_EXPECT_EQ(test, mpam_mbw_prop_config(&cfg), 0);
+
+	mpam_set_feature(mpam_feat_mbw_prop, &cfg);
+	KUNIT_EXPECT_EQ(test, mpam_mbw_prop_config(&cfg),
+			MPAMCFG_MBW_PROP_EN);
+
+	cfg.mbw_prop = 63;
+	KUNIT_EXPECT_EQ(test, mpam_mbw_prop_config(&cfg),
+			MPAMCFG_MBW_PROP_EN | 63);
+}
+
+static void test_mbw_prop_update_zero(struct kunit *test)
+{
+	struct mpam_config cfg = { };
+	struct mpam_config new_cfg = { };
+
+	mpam_set_feature(mpam_feat_mbw_prop, &new_cfg);
+	KUNIT_EXPECT_TRUE(test, mpam_update_config(&cfg, &new_cfg));
+	KUNIT_EXPECT_TRUE(test, mpam_has_feature(mpam_feat_mbw_prop, &cfg));
+	KUNIT_EXPECT_EQ(test, cfg.mbw_prop, 0);
+}
+
 static struct kunit_case mpam_devices_test_cases[] = {
+	KUNIT_CASE(test_mbw_prop_config),
+	KUNIT_CASE(test_mbw_prop_update_zero),
 	KUNIT_CASE(test_mpam_reset_msc_bitmap),
 	KUNIT_CASE(test_mpam_enable_merge_features),
 	KUNIT_CASE(test__props_mismatch),

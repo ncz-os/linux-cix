@@ -1549,6 +1549,15 @@ static u16 mpam_wa_t241_calc_min_from_max(struct mpam_props *props,
 }
 
 /* Called via IPI. Call while holding an SRCU reference */
+static u32 mpam_mbw_prop_config(struct mpam_config *cfg)
+{
+	if (!mpam_has_feature(mpam_feat_mbw_prop, cfg))
+		return 0;
+
+	return MPAMCFG_MBW_PROP_EN |
+	       FIELD_PREP(MPAMCFG_MBW_PROP_STRIDEM1, cfg->mbw_prop);
+}
+
 static void mpam_reprogram_ris_partid(struct mpam_msc_ris *ris, u16 partid,
 				      struct mpam_config *cfg)
 {
@@ -1606,7 +1615,8 @@ static void mpam_reprogram_ris_partid(struct mpam_msc_ris *ris, u16 partid,
 	}
 
 	if (mpam_has_feature(mpam_feat_mbw_prop, rprops))
-		mpam_write_partsel_reg(msc, MBW_PROP, 0);
+		mpam_write_partsel_reg(msc, MBW_PROP,
+				       mpam_mbw_prop_config(cfg));
 
 	if (mpam_has_feature(mpam_feat_cmax_cmax, rprops))
 		mpam_write_partsel_reg(msc, CMAX, cmax);
@@ -2639,6 +2649,10 @@ static void mpam_reset_component_cfg(struct mpam_component *comp)
 			comp->cfg[i].mbw_pbm = GENMASK(cprops->mbw_pbm_bits - 1, 0);
 		if (cprops->bwa_wd)
 			comp->cfg[i].mbw_max = GENMASK(15, 16 - cprops->bwa_wd);
+		if (comp->class->mbw_prop_enabled) {
+			comp->cfg[i].mbw_prop = 0;
+			mpam_set_feature(mpam_feat_mbw_prop, &comp->cfg[i]);
+		}
 	}
 }
 
@@ -2913,6 +2927,13 @@ static bool mpam_update_config(struct mpam_config *cfg,
 	maybe_update_config(cfg, mpam_feat_cpor_part, newcfg, cpbm, has_changes);
 	maybe_update_config(cfg, mpam_feat_mbw_part, newcfg, mbw_pbm, has_changes);
 	maybe_update_config(cfg, mpam_feat_mbw_max, newcfg, mbw_max, has_changes);
+	if (mpam_has_feature(mpam_feat_mbw_prop, newcfg) &&
+	    (!mpam_has_feature(mpam_feat_mbw_prop, cfg) ||
+	     newcfg->mbw_prop != cfg->mbw_prop)) {
+		cfg->mbw_prop = newcfg->mbw_prop;
+		mpam_set_feature(mpam_feat_mbw_prop, cfg);
+		has_changes = true;
+	}
 
 	return has_changes;
 }
@@ -2952,6 +2973,22 @@ int mpam_apply_config(struct mpam_component *comp, u16 partid,
 	}
 
 	return 0;
+}
+
+void mpam_enable_mbw_prop_locked(struct mpam_class *class)
+{
+	struct mpam_config cfg = { };
+	struct mpam_component *comp;
+	u16 partid;
+
+	lockdep_assert_cpus_held();
+	mpam_set_feature(mpam_feat_mbw_prop, &cfg);
+
+	guard(srcu)(&mpam_srcu);
+	list_for_each_entry_srcu(comp, &class->components, class_list,
+				 srcu_read_lock_held(&mpam_srcu))
+		for (partid = 0; partid <= mpam_partid_max; partid++)
+			mpam_apply_config(comp, partid, &cfg);
 }
 
 static int __init mpam_msc_driver_init(void)
