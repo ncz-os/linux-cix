@@ -37,7 +37,7 @@ about the feature from resctrl's info directory.
 
 To use the feature mount the file system::
 
- # mount -t resctrl resctrl [-o cdp[,cdpl2][,mba_MBps][,debug]] /sys/fs/resctrl
+ # mount -t resctrl resctrl [-o cdp[,cdpl2][,mba_MBps][,mbw_prop][,debug]] /sys/fs/resctrl
 
 mount options are:
 
@@ -48,6 +48,9 @@ mount options are:
 "mba_MBps":
 	Enable the MBA Software Controller(mba_sc) to specify MBA
 	bandwidth in MiBps
+"mbw_prop":
+	Enable the Arm MPAM memory bandwidth proportional-stride control.
+	This option is incompatible with code and data prioritization (CDP).
 "debug":
 	Make debug files accessible. Available debug files are annotated with
 	"Available only with debug option".
@@ -228,17 +231,19 @@ related to allocation:
 		written to /sys/fs/resctrl/info/L3DATA/io_alloc_cbm may be reflected by
 		/sys/fs/resctrl/info/L3CODE/io_alloc_cbm and vice versa.
 
-Memory bandwidth(MB) subdirectory contains the following files
-with respect to allocation:
+Memory bandwidth (MB, MB_PROP and SMBA) subdirectories contain the following
+files with respect to allocation:
 
 "min_bandwidth":
-		The minimum memory bandwidth percentage which
-		user can request.
+		The minimum memory bandwidth value which the user can request.
+
+"max_bandwidth":
+		The maximum memory bandwidth value which the user can
+		request. This is normally 100 for percentage controls.
 
 "bandwidth_gran":
-		The granularity in which the memory bandwidth
-		percentage is allocated. The allocated
-		b/w percentage is rounded off to the next
+		The granularity in which the memory bandwidth value is
+		allocated. The allocated value is rounded off to the next
 		control step available on the hardware. The
 		available bandwidth control steps are:
 		min_bandwidth + N * bandwidth_gran.
@@ -973,6 +978,17 @@ Memory bandwidth domain is L3 cache.
 ::
 
 	MB:<cache_id0>=bw_MiBps0;<cache_id1>=bw_MiBps1;...
+
+Memory bandwidth proportional-stride allocation
+------------------------------------------------
+
+On Arm MPAM systems mounted with the ``mbw_prop`` option, ``MB_PROP`` contains
+the hardware stride-minus-one value. Zero selects stride one and higher values
+give the group a lower relative share under bandwidth contention. This is a
+work-conserving control and does not impose an absolute bandwidth limit.
+::
+
+	MB_PROP:<cache_id0>=stride_minus_one0;<cache_id1>=stride_minus_one1;...
 
 Slow Memory Bandwidth Allocation (SMBA)
 ---------------------------------------
