@@ -52,6 +52,7 @@ enum resctrl_res_level {
 	RDT_RESOURCE_L3,
 	RDT_RESOURCE_L2,
 	RDT_RESOURCE_MBA,
+	RDT_RESOURCE_MBW_PROP,
 	RDT_RESOURCE_SMBA,
 	RDT_RESOURCE_PERF_PKG,
 
@@ -245,8 +246,9 @@ enum membw_throttle_mode {
 /**
  * struct resctrl_membw - Memory bandwidth allocation related data
  * @min_bw:		Minimum memory bandwidth percentage user can request
- * @max_bw:		Maximum memory bandwidth value, used as the reset value
+ * @max_bw:		Maximum memory bandwidth value user can request
  * @bw_gran:		Granularity at which the memory bandwidth is allocated
+ * @reset_val:		Control value used when the resource is reset
  * @delay_linear:	True if memory B/W delay is in linear scale
  * @arch_needs_linear:	True if we can't configure non-linear resources
  * @throttle_mode:	Bandwidth throttling mode when threads request
@@ -258,6 +260,7 @@ struct resctrl_membw {
 	u32				min_bw;
 	u32				max_bw;
 	u32				bw_gran;
+	u32				reset_val;
 	u32				delay_linear;
 	bool				arch_needs_linear;
 	enum membw_throttle_mode	throttle_mode;
@@ -407,7 +410,7 @@ static inline u32 resctrl_get_default_ctrl(struct rdt_resource *r)
 	case RESCTRL_SCHEMA_BITMAP:
 		return BIT_MASK(r->cache.cbm_len) - 1;
 	case RESCTRL_SCHEMA_RANGE:
-		return r->membw.max_bw;
+		return r->membw.reset_val;
 	}
 
 	return WARN_ON_ONCE(1);
@@ -483,6 +486,9 @@ static inline u32 resctrl_get_config_index(u32 closid,
 
 bool resctrl_arch_get_cdp_enabled(enum resctrl_res_level l);
 int resctrl_arch_set_cdp_enabled(enum resctrl_res_level l, bool enable);
+bool resctrl_arch_control_enabled(struct rdt_resource *r);
+bool resctrl_arch_get_mbw_prop_enabled(void);
+int resctrl_arch_set_mbw_prop_enabled(bool enable);
 
 /**
  * resctrl_arch_mbm_cntr_assign_enabled() - Check if MBM counter assignment
