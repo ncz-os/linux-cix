@@ -229,6 +229,21 @@ bool resctrl_arch_get_cdp_enabled(enum resctrl_res_level l)
 	return rdt_resources_all[l].cdp_enabled;
 }
 
+bool resctrl_arch_get_mbw_prop_enabled(void)
+{
+	return false;
+}
+
+bool resctrl_arch_control_enabled(struct rdt_resource *r)
+{
+	return true;
+}
+
+int resctrl_arch_set_mbw_prop_enabled(bool enable)
+{
+	return enable ? -EOPNOTSUPP : 0;
+}
+
 void resctrl_arch_reset_all_ctrls(struct rdt_resource *r)
 {
 	struct rdt_hw_resource *hw_res = resctrl_to_arch_res(r);
