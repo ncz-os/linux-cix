@@ -1161,6 +1161,16 @@ static int rdt_min_bw_show(struct kernfs_open_file *of,
 	return 0;
 }
 
+static int rdt_max_bw_show(struct kernfs_open_file *of,
+			   struct seq_file *seq, void *v)
+{
+	struct resctrl_schema *s = rdt_kn_parent_priv(of->kn);
+	struct rdt_resource *r = s->res;
+
+	seq_printf(seq, "%u\n", r->membw.max_bw);
+	return 0;
+}
+
 static int rdt_num_rmids_show(struct kernfs_open_file *of,
 			      struct seq_file *seq, void *v)
 {
@@ -1420,7 +1430,7 @@ static bool rdtgroup_mode_test_exclusive(struct rdtgroup *rdtgrp)
 
 	list_for_each_entry(s, &resctrl_schema_all, list) {
 		r = s->res;
-		if (r->rid == RDT_RESOURCE_MBA || r->rid == RDT_RESOURCE_SMBA)
+		if (r->schema_fmt == RESCTRL_SCHEMA_RANGE)
 			continue;
 		has_cache = true;
 		list_for_each_entry(d, &r->ctrl_domains, hdr.list) {
@@ -1624,8 +1634,7 @@ static int rdtgroup_size_show(struct kernfs_open_file *of,
 					ctrl = resctrl_arch_get_config(r, d,
 								       closid,
 								       type);
-				if (r->rid == RDT_RESOURCE_MBA ||
-				    r->rid == RDT_RESOURCE_SMBA)
+				if (r->schema_fmt == RESCTRL_SCHEMA_RANGE)
 					size = ctrl;
 				else
 					size = rdtgroup_cbm_to_size(r, d, ctrl);
@@ -1965,6 +1974,13 @@ static struct rftype res_common_files[] = {
 		.mode		= 0444,
 		.kf_ops		= &rdtgroup_kf_single_ops,
 		.seq_show	= rdt_min_bw_show,
+		.fflags		= RFTYPE_CTRL_INFO | RFTYPE_RES_MB,
+	},
+	{
+		.name		= "max_bandwidth",
+		.mode		= 0444,
+		.kf_ops		= &rdtgroup_kf_single_ops,
+		.seq_show	= rdt_max_bw_show,
 		.fflags		= RFTYPE_CTRL_INFO | RFTYPE_RES_MB,
 	},
 	{
@@ -2410,6 +2426,7 @@ static unsigned long fflags_from_resource(struct rdt_resource *r)
 	case RDT_RESOURCE_L2:
 		return RFTYPE_RES_CACHE;
 	case RDT_RESOURCE_MBA:
+	case RDT_RESOURCE_MBW_PROP:
 	case RDT_RESOURCE_SMBA:
 		return RFTYPE_RES_MB;
 	case RDT_RESOURCE_PERF_PKG:
@@ -2658,6 +2675,7 @@ static int mkdir_mondata_all(struct kernfs_node *parent_kn,
 
 static void rdt_disable_ctx(void)
 {
+	resctrl_arch_set_mbw_prop_enabled(false);
 	resctrl_arch_set_cdp_enabled(RDT_RESOURCE_L3, false);
 	resctrl_arch_set_cdp_enabled(RDT_RESOURCE_L2, false);
 	set_mba_sc(false);
@@ -2687,11 +2705,17 @@ static int rdt_enable_ctx(struct rdt_fs_context *ctx)
 			goto out_cdpl3;
 	}
 
+	ret = resctrl_arch_set_mbw_prop_enabled(ctx->enable_mbw_prop);
+	if (ret)
+		goto out_mba_mbps;
+
 	if (ctx->enable_debug)
 		resctrl_debug = true;
 
 	return 0;
 
+out_mba_mbps:
+	set_mba_sc(false);
 out_cdpl3:
 	resctrl_arch_set_cdp_enabled(RDT_RESOURCE_L3, false);
 out_cdpl2:
@@ -2773,6 +2797,9 @@ static int schemata_list_create(void)
 	int ret = 0;
 
 	for_each_alloc_capable_rdt_resource(r) {
+		if (!resctrl_arch_control_enabled(r))
+			continue;
+
 		if (resctrl_arch_get_cdp_enabled(r->rid)) {
 			ret = schemata_list_add(r, CDP_CODE);
 			if (ret)
@@ -2931,6 +2958,7 @@ enum rdt_param {
 	Opt_cdp,
 	Opt_cdpl2,
 	Opt_mba_mbps,
+	Opt_mbw_prop,
 	Opt_debug,
 	nr__rdt_params
 };
@@ -2939,6 +2967,7 @@ static const struct fs_parameter_spec rdt_fs_parameters[] = {
 	fsparam_flag("cdp",		Opt_cdp),
 	fsparam_flag("cdpl2",		Opt_cdpl2),
 	fsparam_flag("mba_MBps",	Opt_mba_mbps),
+	fsparam_flag("mbw_prop",	Opt_mbw_prop),
 	fsparam_flag("debug",		Opt_debug),
 	{}
 };
@@ -2966,6 +2995,9 @@ static int rdt_parse_param(struct fs_context *fc, struct fs_parameter *param)
 		if (!supports_mba_mbps())
 			return invalfc(fc, msg);
 		ctx->enable_mba_mbps = true;
+		return 0;
+	case Opt_mbw_prop:
+		ctx->enable_mbw_prop = true;
 		return 0;
 	case Opt_debug:
 		ctx->enable_debug = true;
@@ -3676,8 +3708,7 @@ static int rdtgroup_init_alloc(struct rdtgroup *rdtgrp)
 
 	list_for_each_entry(s, &resctrl_schema_all, list) {
 		r = s->res;
-		if (r->rid == RDT_RESOURCE_MBA ||
-		    r->rid == RDT_RESOURCE_SMBA) {
+		if (r->schema_fmt == RESCTRL_SCHEMA_RANGE) {
 			rdtgroup_init_mba(r, rdtgrp->closid);
 			if (is_mba_sc(r))
 				continue;
@@ -4267,6 +4298,9 @@ static int rdtgroup_show_options(struct seq_file *seq, struct kernfs_root *kf)
 
 	if (is_mba_sc(resctrl_arch_get_resource(RDT_RESOURCE_MBA)))
 		seq_puts(seq, ",mba_MBps");
+
+	if (resctrl_arch_get_mbw_prop_enabled())
+		seq_puts(seq, ",mbw_prop");
 
 	if (resctrl_debug)
 		seq_puts(seq, ",debug");
