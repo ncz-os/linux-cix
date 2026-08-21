@@ -24,6 +24,7 @@
 #include <linux/property.h>
 
 #include "core.h"
+#include "cdnsp-sky1.h"
 #include "gadget-export.h"
 #include "drd.h"
 
@@ -108,6 +109,30 @@ static void set_phy_power_off(struct cdns *cdns)
 	phy_power_off(cdns->usb2_phy);
 }
 
+static const struct acpi_device_id cdnsp_sky1_parent_match[] = {
+	{ "CIXH2030" },
+	{ }
+};
+
+static int cdnsp_sky1_wait_for_parent(struct device *dev)
+{
+	struct device *parent = dev->parent;
+	struct cdnsp_sky1 *data;
+
+	if (!has_acpi_companion(dev) || !parent)
+		return 0;
+
+	if (!acpi_match_device(cdnsp_sky1_parent_match, parent))
+		return 0;
+
+	data = dev_get_drvdata(parent);
+	if (!data || !data->ready)
+		return dev_err_probe(dev, -EPROBE_DEFER,
+				     "waiting for Sky1 USB wrapper\n");
+
+	return 0;
+}
+
 /**
  * cdnsp_plat_probe - probe for cdnsp core device
  * @pdev: Pointer to cdnsp core platform device
@@ -121,6 +146,10 @@ static int cdnsp_plat_probe(struct platform_device *pdev)
 	struct cdns *cdns;
 	void __iomem *regs;
 	int ret;
+
+	ret = cdnsp_sky1_wait_for_parent(dev);
+	if (ret)
+		return ret;
 
 	cdns = devm_kzalloc(dev, sizeof(*cdns), GFP_KERNEL);
 	if (!cdns)
