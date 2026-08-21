@@ -116,6 +116,7 @@ struct cdnsp_sky1 {
 	int sof_clk_freq;
 	bool u3_disable;
 	bool ssp_disable;
+	bool ready;
 	int axi_bmax_value;
 	struct gpio_desc *oc_gpio;
 };
