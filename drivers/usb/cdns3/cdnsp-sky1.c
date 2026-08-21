@@ -820,6 +820,7 @@ static int cdnsp_sky1_probe(struct platform_device *pdev)
 		}
 	}
 
+	data->ready = true;
 	return 0;
 err_pm:
 	pm_runtime_disable(dev);
