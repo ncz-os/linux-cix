@@ -5834,9 +5834,33 @@ static void port_event(struct usb_hub *hub, int port1)
 				USB_PORT_FEAT_C_PORT_CONFIG_ERROR);
 	}
 
-	/* skip port actions that require the port to be powered on */
-	if (!pm_runtime_active(&port_dev->dev))
-		return;
+	/*
+	 * Skip port actions that require the port to be powered on, but only
+	 * when port power is genuinely off.  The runtime-PM state of the port
+	 * device is supposed to mirror logical port power: while the default
+	 * PM_QOS_FLAG_NO_POWER_OFF request is in place,
+	 * usb_port_runtime_suspend() refuses to run, so a powered port stays
+	 * RPM_ACTIVE.  If platform bring-up nevertheless leaves the port
+	 * device RPM_SUSPENDED while port power was never dropped (power_bits
+	 * still set), every connect-change on that port would be discarded
+	 * here forever: hub_activate() re-reports the connection into
+	 * change_bits on every resume, hub_event() runs, and the event dies
+	 * on this check with the port stuck at CCS=1/PED=0/PLS=Polling.
+	 *
+	 * A port whose power_bits entry is set cannot actually be powered
+	 * off, so treat suspended-but-powered as stale state and repair it
+	 * instead of dropping the event.  usb_port_runtime_resume() on an
+	 * already-powered childless port only re-issues
+	 * SetPortFeature(PORT_POWER) and waits out the power-good delay.
+	 */
+	if (!pm_runtime_active(&port_dev->dev)) {
+		if (!test_bit(port1, hub->power_bits))
+			return;
+		dev_info(&port_dev->dev,
+			 "port is powered but runtime-suspended; resuming it to handle the event\n");
+		if (pm_runtime_resume(&port_dev->dev) < 0)
+			return;
+	}
 
 	/* skip port actions if ignore_event and early_stop are true */
 	if (port_dev->ignore_event && port_dev->early_stop)
