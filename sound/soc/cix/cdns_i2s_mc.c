@@ -171,7 +171,7 @@ struct cdns_i2s_mc_priv {
 	/* i2s id index */
 	int idx;
 
-	bool is_master_mode;
+	bool is_master_mode[2];
 
 	u8 pin_out_num;
 	u8 pin_rx_mask;
@@ -197,8 +197,8 @@ static int cdns_i2s_mc_clks_enable(struct cdns_i2s_mc_priv *i2s_mc_priv)
 
 static void cdns_i2s_mc_clks_disable(struct cdns_i2s_mc_priv *i2s_mc_priv)
 {
-	clk_disable_unprepare(i2s_mc_priv->clk_hst);
 	clk_disable_unprepare(i2s_mc_priv->clk_i2s);
+	clk_disable_unprepare(i2s_mc_priv->clk_hst);
 }
 
 static void cdns_i2s_mc_adjust_pin_config(u8 pin_out, u8 *pin_mask, u32 slots)
@@ -392,11 +392,11 @@ static int cdns_i2s_mc_set_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 		switch (fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) {
 		case SND_SOC_DAIFMT_BC_FC:
 			ctrl &= ~I2S_CTRL_T_MS;
-			i2s_mc_priv->is_master_mode = false;
+			i2s_mc_priv->is_master_mode[cpu_dai->id] = false;
 			break;
 		case SND_SOC_DAIFMT_BP_FP:
 			ctrl |= I2S_CTRL_T_MS;
-			i2s_mc_priv->is_master_mode = true;
+			i2s_mc_priv->is_master_mode[cpu_dai->id] = true;
 			break;
 		default:
 			return -EINVAL;
@@ -471,11 +471,11 @@ static int cdns_i2s_mc_set_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 		switch (fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) {
 		case SND_SOC_DAIFMT_BC_FC:
 			ctrl &= ~I2S_CTRL_R_MS;
-			i2s_mc_priv->is_master_mode = false;
+			i2s_mc_priv->is_master_mode[cpu_dai->id] = false;
 			break;
 		case SND_SOC_DAIFMT_BP_FP:
 			ctrl |= I2S_CTRL_R_MS;
-			i2s_mc_priv->is_master_mode = true;
+			i2s_mc_priv->is_master_mode[cpu_dai->id] = true;
 			break;
 		default:
 			return -EINVAL;
@@ -597,17 +597,18 @@ static int cdns_i2s_mc_hw_params(struct snd_pcm_substream *substream,
 	if (rate % 8000 == 0) {
 		/* Sampling rate is a multiple of 8KHz, select "audio_clk0" */
 		clk_parent = i2s_mc_priv->clks[AUDIO_CLK0];
-
-		ret = clk_set_parent(i2s_mc_priv->clk_i2s, clk_parent);
 	} else if (rate % 11025 == 0) {
 		/* Sampling rate is a multiple of 11.025KHz, select "audio_clk2" */
 		clk_parent = i2s_mc_priv->clks[AUDIO_CLK2];
-
-		ret = clk_set_parent(i2s_mc_priv->clk_i2s, clk_parent);
 	} else {
 		dev_err(i2s_mc_priv->dev, "Invalid sample rate\n");
 		return -EINVAL;
 	}
+	if (!clk_parent)
+		return dev_err_probe(dev, -ENOENT,
+				     "Missing parent clock for %u Hz\n", rate);
+
+	ret = clk_set_parent(i2s_mc_priv->clk_i2s, clk_parent);
 	if (ret) {
 		dev_err(i2s_mc_priv->dev, "Failed to set i2s clock parent\n");
 		return ret;
@@ -616,7 +617,7 @@ static int cdns_i2s_mc_hw_params(struct snd_pcm_substream *substream,
 	i2s_clk_rate = clk_get_rate(i2s_mc_priv->clk_i2s);
 	dev_dbg(dev, "i2s clk rate = %d\n", i2s_clk_rate);
 
-	if (i2s_mc_priv->is_master_mode) {
+	if (i2s_mc_priv->is_master_mode[cpu_dai->id]) {
 		if (i2s_clk_rate < rate * 2 * slot_width * 6) {
 			dev_err(i2s_mc_priv->dev,
 				"clk freq %d is too low, must greater then %d * %d * %d * 6 = %d\n",
@@ -651,8 +652,11 @@ static int cdns_i2s_mc_hw_params(struct snd_pcm_substream *substream,
 						      &i2s_mc_priv->pin_tx_mask_adjust, slots);
 		}
 
-		regmap_update_bits(i2s_mc_priv->regmap, I2S_SRR, I2S_SRR_TSAMPLE_RATE,
-				   FIELD_PREP(I2S_SRR_TSAMPLE_RATE, sample_rate));
+		if (i2s_mc_priv->is_master_mode[cpu_dai->id])
+			regmap_update_bits(i2s_mc_priv->regmap, I2S_SRR,
+					   I2S_SRR_TSAMPLE_RATE,
+					   FIELD_PREP(I2S_SRR_TSAMPLE_RATE,
+						      sample_rate));
 		regmap_update_bits(i2s_mc_priv->regmap, I2S_SRR, I2S_SRR_TRESOLUTION,
 				   FIELD_PREP(I2S_SRR_TRESOLUTION, (resolution - 1)));
 	} else {
@@ -668,8 +672,11 @@ static int cdns_i2s_mc_hw_params(struct snd_pcm_substream *substream,
 						      &i2s_mc_priv->pin_rx_mask_adjust, slots);
 		}
 
-		regmap_update_bits(i2s_mc_priv->regmap, I2S_SRR, I2S_SRR_RSAMPLE_RATE,
-				   FIELD_PREP(I2S_SRR_RSAMPLE_RATE, sample_rate));
+		if (i2s_mc_priv->is_master_mode[cpu_dai->id])
+			regmap_update_bits(i2s_mc_priv->regmap, I2S_SRR,
+					   I2S_SRR_RSAMPLE_RATE,
+					   FIELD_PREP(I2S_SRR_RSAMPLE_RATE,
+						      sample_rate));
 		regmap_update_bits(i2s_mc_priv->regmap, I2S_SRR, I2S_SRR_RRESOLUTION,
 				   FIELD_PREP(I2S_SRR_RRESOLUTION, (resolution - 1)));
 	}
@@ -982,14 +989,16 @@ static int cdns_i2s_mc_probe(struct platform_device *pdev)
 
 	i2s_mc_priv->clk_hst = devm_clk_get(&pdev->dev, "hst");
 	if (IS_ERR(i2s_mc_priv->clk_hst)) {
-		dev_err(&pdev->dev, "Failed to get clk_hst clock\n");
-		return PTR_ERR(i2s_mc_priv->clk_hst);
+		ret = PTR_ERR(i2s_mc_priv->clk_hst);
+		return dev_err_probe(&pdev->dev, ret,
+				     "Failed to get clk_hst clock\n");
 	}
 
 	i2s_mc_priv->clk_i2s = devm_clk_get(&pdev->dev, "i2s");
 	if (IS_ERR(i2s_mc_priv->clk_i2s)) {
-		dev_err(&pdev->dev, "Failed to get clk_i2s clock\n");
-		return PTR_ERR(i2s_mc_priv->clk_i2s);
+		ret = PTR_ERR(i2s_mc_priv->clk_i2s);
+		return dev_err_probe(&pdev->dev, ret,
+				     "Failed to get clk_i2s clock\n");
 	}
 
 	for (i = 0; i < AUDIO_CLK_NUM; i++) {
@@ -1017,7 +1026,7 @@ static int cdns_i2s_mc_probe(struct platform_device *pdev)
 	if (!irq_name)
 			return -ENOMEM;
 
-	ret = devm_request_irq(&pdev->dev, irq, cdns_i2s_mc_isr, IRQF_SHARED,
+	ret = devm_request_irq(&pdev->dev, irq, cdns_i2s_mc_isr, 0,
 			       irq_name, i2s_mc_priv);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to request irq: %d", ret);
