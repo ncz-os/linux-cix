@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0
 // Copyright 2024 Cix Technology Group Co., Ltd.
+#include <linux/acpi.h>
 #include <linux/clk.h>
+#include <linux/err.h>
 #include <linux/module.h>
 #include <linux/mfd/syscon.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
+#include <linux/string.h>
 #include "card-utils.h"
 #include <sound/jack.h>
 #include <sound/hdmi-codec.h>
@@ -60,8 +63,10 @@ static int cix_jack_init(struct snd_soc_pcm_runtime *rtd)
 		}
 		dev_info(dev, "codec component %s\n", codec_dai->component->name);
 
-		snd_soc_component_set_jack(codec_dai->component,
-						&link_info->jack[jack[i]], NULL);
+		ret = snd_soc_component_set_jack(codec_dai->component,
+						 &link_info->jack[jack[i]], NULL);
+		if (ret)
+			return ret;
 	}
 
 	return 0;
@@ -100,16 +105,9 @@ static int cix_dailink_parsing_fmt(struct device_node *np,
 static bool cix_dailink_status_check(struct device_node *np)
 {
 	const char *status;
-	int ret;
 
-	ret = of_property_read_string(np, "status", &status);
-
-	if (status) {
-		if (!strcmp(status, "okay") || !strcmp(status, "ok"))
-			return true;
-		else
-			return false;
-	}
+	if (!of_property_read_string(np, "status", &status))
+		return !strcmp(status, "okay") || !strcmp(status, "ok");
 
 	return true;
 }
@@ -158,6 +156,10 @@ static int dai_set_sysclk(struct snd_pcm_substream *substream,
 		} else if (sample_rate == 192000) {
 			mclk_fs = 256;
 			mclk_div = 0;
+		} else {
+			dev_err(rtd->dev, "Unsupported sample rate %u for 8kHz clock family\n",
+				sample_rate);
+			return -EINVAL;
 		}
 
 		mclk_parent = link_info->clks[AUDIO_CLK0];
@@ -177,6 +179,10 @@ static int dai_set_sysclk(struct snd_pcm_substream *substream,
 		} else if (sample_rate == 176400) {
 			mclk_fs = 256;
 			mclk_div = 0;
+		} else {
+			dev_err(rtd->dev, "Unsupported sample rate %u for 11.025kHz clock family\n",
+				sample_rate);
+			return -EINVAL;
 		}
 
 		mclk_parent = link_info->clks[AUDIO_CLK2];
@@ -301,9 +307,7 @@ static int cix_dailink_init(struct snd_soc_pcm_runtime *rtd)
 			return ret;
 	}
 
-	cix_jack_init(rtd);
-
-	return 0;
+	return cix_jack_init(rtd);
 }
 
 static int cix_gpio_init(struct cix_asoc_card *priv)
@@ -462,7 +466,8 @@ int cix_card_parse_of(struct cix_asoc_card *priv)
 		link->cpus = &comp_cpu[0];
 		link->num_cpus = 1;
 		link->cpus->of_node = args.np;
-		link->id = args.args[0];
+		/* rtd->id indexes the compact link and link_info arrays. */
+		link->id = current_np;
 
 		link->platforms	= &comp_cpu[1];
 		link->num_platforms = 1;
@@ -504,7 +509,9 @@ int cix_card_parse_of(struct cix_asoc_card *priv)
 		}
 		dev_info(dev, "\tcodec dai name:%s\n", link->codecs->dai_name );
 
-		cix_dailink_parsing_fmt(np, codec, &link->dai_fmt);
+		ret = cix_dailink_parsing_fmt(np, codec, &link->dai_fmt);
+		if (ret)
+			goto err_put_codec;
 
 		of_property_read_u32(np, "mclk-fs", &link_info->mclk_fs);
 		if (link_info->mclk_fs) {
@@ -529,11 +536,12 @@ int cix_card_parse_of(struct cix_asoc_card *priv)
 			}
 		}
 
-		snd_soc_of_parse_tdm_slot(np,
-					  &link_info->tx_mask,
-					  &link_info->rx_mask,
-					  &link_info->slots,
-					  &link_info->slot_width);
+		ret = snd_soc_of_parse_tdm_slot(np, &link_info->tx_mask,
+						&link_info->rx_mask,
+						&link_info->slots,
+						&link_info->slot_width);
+		if (ret)
+			goto err_put_codec;
 
 		if (of_property_read_bool(np, "jack-det,dpin")) {
 			link_info->jack_pin[JACK_DPIN].pin = np->name ? np->name : "jack-dpin";
@@ -546,7 +554,12 @@ int cix_card_parse_of(struct cix_asoc_card *priv)
 			snprintf(dp_str, sizeof(dp_str),
 				"HDMI/DP,pcm=%d", current_np);
 
-			link_info->jack_pin[JACK_DPOUT].pin = kstrdup(dp_str, GFP_KERNEL);
+			link_info->jack_pin[JACK_DPOUT].pin =
+				devm_kstrdup(dev, dp_str, GFP_KERNEL);
+			if (!link_info->jack_pin[JACK_DPOUT].pin) {
+				ret = -ENOMEM;
+				goto err_put_codec;
+			}
 			link_info->jack_pin[JACK_DPOUT].mask = SND_JACK_LINEOUT;
 			link_info->jack_det_mask |= JACK_MASK_DPOUT;
 		}
@@ -569,6 +582,8 @@ int cix_card_parse_of(struct cix_asoc_card *priv)
 		link->name = np->name ? np->name : link->cpus->dai_name;
 		link->ops = &cix_dailink_ops;
 		link->init = cix_dailink_init;
+		link->trigger_start = SND_SOC_TRIGGER_ORDER_DEFAULT;
+		link->trigger_stop = SND_SOC_TRIGGER_ORDER_LDC;
 
 		link++;
 		link_info++;
@@ -786,9 +801,10 @@ static int cix_acpi_dp_audio_check_present(int idx)
 	return 0;
 }
 
-static const char *cix_acpi_dp_audio_get_cpu_name(int idx)
+static struct device *cix_acpi_dp_audio_get_i2s_dev(int idx)
 {
 	struct acpi_device *adev;
+	struct device *dev;
 	char path[16];
 	acpi_handle handle;
 	acpi_status status;
@@ -796,13 +812,17 @@ static const char *cix_acpi_dp_audio_get_cpu_name(int idx)
 	snprintf(path, 16, "\\_SB.I2S%d", idx + SKY1_AUDSS_DP_AUDIO_OFFSET);
 	status = acpi_get_handle(NULL, path, &handle);
 	if (ACPI_FAILURE(status))
-		return NULL;
+		return ERR_PTR(-ENODEV);
 
 	adev = acpi_fetch_acpi_dev(handle);
 	if (!adev || !adev->status.present)
-		return NULL;
+		return ERR_PTR(-ENODEV);
 
-	return dev_name(&adev->dev);
+	dev = bus_find_device_by_acpi_dev(&platform_bus_type, adev);
+	if (!dev)
+		return ERR_PTR(-EPROBE_DEFER);
+
+	return dev;
 }
 
 /*
@@ -818,7 +838,7 @@ static int cix_dp_match_hdmi_codec(struct device *dev, const void *data)
 	       !strcmp(to_platform_device(dev)->name, HDMI_CODEC_DRV_NAME);
 }
 
-static const char *cix_acpi_dp_audio_get_codec_name(int idx)
+static struct device *cix_acpi_dp_audio_get_codec_dev(int idx)
 {
 	struct acpi_device *adev;
 	struct device *dev, *dpdev;
@@ -837,18 +857,35 @@ static const char *cix_acpi_dp_audio_get_codec_name(int idx)
 
 	dev = bus_find_device_by_acpi_dev(&platform_bus_type, adev);
 	if (!dev)
-		return NULL;
+		return ERR_PTR(-EPROBE_DEFER);
 
 	dpdev = device_find_child(dev, NULL, cix_dp_match_hdmi_codec);
+	put_device(dev);
 	if (!dpdev)
-		return NULL;
+		return ERR_PTR(-EPROBE_DEFER);
 
-	/*
-	 * dev_name() is correct here: the hdmi-codec ASoC component is
-	 * registered under the device name (hdmi-audio-codec.N.auto), which is
-	 * what snd_soc matches dai_link codecs->name against.
-	 */
-	return dev_name(dpdev);
+	return dpdev;
+}
+
+static int cix_card_link_supplier(struct device *consumer,
+				  struct device *supplier)
+{
+	int ret;
+
+	if (!device_link_add(consumer, supplier,
+			     DL_FLAG_AUTOREMOVE_CONSUMER))
+		return dev_err_probe(consumer, -EINVAL,
+				     "failed to link supplier %s\n",
+				     dev_name(supplier));
+
+	device_lock(supplier);
+	ret = device_is_bound(supplier) ? 0 : -EPROBE_DEFER;
+	device_unlock(supplier);
+	if (!ret)
+		return 0;
+
+	return dev_err_probe(consumer, ret, "supplier %s not ready\n",
+			     dev_name(supplier));
 }
 
 int cix_card_parse_acpi(struct cix_asoc_card *priv)
@@ -952,10 +989,50 @@ int cix_card_parse_acpi(struct cix_asoc_card *priv)
 
 	/* dp audio */
 	for (i = 0; i < SKY1_AUDSS_DP_AUDIO_COUNT; i++) {
+		struct device *codec_dev;
+		struct device *i2s_dev;
+		const char *codec_name;
+		const char *cpu_name;
 		char dp_str[32];
 
 		if (cix_acpi_dp_audio_check_present(i))
 			continue;
+
+		i2s_dev = cix_acpi_dp_audio_get_i2s_dev(i);
+		if (IS_ERR(i2s_dev)) {
+			ret = PTR_ERR(i2s_dev);
+			goto err;
+		}
+
+		codec_dev = cix_acpi_dp_audio_get_codec_dev(i);
+		if (IS_ERR(codec_dev)) {
+			ret = PTR_ERR(codec_dev);
+			put_device(i2s_dev);
+			goto err;
+		}
+
+		ret = cix_card_link_supplier(dev, i2s_dev);
+		if (ret) {
+			put_device(codec_dev);
+			put_device(i2s_dev);
+			goto err;
+		}
+
+		ret = cix_card_link_supplier(dev, codec_dev);
+		if (ret) {
+			put_device(codec_dev);
+			put_device(i2s_dev);
+			goto err;
+		}
+
+		cpu_name = devm_kstrdup(dev, dev_name(i2s_dev), GFP_KERNEL);
+		codec_name = devm_kstrdup(dev, dev_name(codec_dev), GFP_KERNEL);
+		put_device(codec_dev);
+		put_device(i2s_dev);
+		if (!cpu_name || !codec_name) {
+			ret = -ENOMEM;
+			goto err;
+		}
 
 		memcpy(link, &sky1_dailink[i + LK_I2S5_DP0], sizeof(struct snd_soc_dai_link));
 		memcpy(link_info, &sky1_link_info[i + LK_I2S5_DP0], sizeof(struct dai_link_info));
@@ -964,8 +1041,8 @@ int cix_card_parse_acpi(struct cix_asoc_card *priv)
 		link->num_codecs = 1;
 		link->num_platforms = 1;
 
-		link->cpus->name = cix_acpi_dp_audio_get_cpu_name(i);
-		link->codecs->name = cix_acpi_dp_audio_get_codec_name(i);
+		link->cpus->name = cpu_name;
+		link->codecs->name = codec_name;
 		link->cpus->dai_name = "i2s-mc-aif1";
 		link->codecs->dai_name = "i2s-hifi";
 		link->platforms->name = link->cpus->name;
