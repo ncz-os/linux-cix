@@ -285,8 +285,8 @@ static int cdns_i2s_sc_clks_enable(struct cdns_i2s_sc_priv *i2s_sc_priv)
 
 static void cdns_i2s_sc_clks_disable(struct cdns_i2s_sc_priv *i2s_sc_priv)
 {
-	clk_disable_unprepare(i2s_sc_priv->clk_hst);
 	clk_disable_unprepare(i2s_sc_priv->clk_i2s);
+	clk_disable_unprepare(i2s_sc_priv->clk_hst);
 }
 
 static void cdns_i2s_sc_rxtx_common_config(struct cdns_i2s_sc_priv *i2s_sc_priv, bool on)
@@ -401,7 +401,7 @@ static void cdns_i2s_sc_tx_config(struct cdns_i2s_sc_priv *i2s_sc_priv, bool on)
 				break;
 			udelay(125);
 		}
-		if (!timeout)
+		if (fifo_level)
 			dev_warn(i2s_sc_priv->dev, "tx fifo transmit timeout\n");
 		else
 			/* Must wait at least single frame time to generate underrun,
@@ -510,7 +510,16 @@ static int cdns_i2s_sc_set_tdm_slot(struct snd_soc_dai *cpu_dai, unsigned int tx
 
 	dev_dbg(dev, "tx_mask = 0x%x, rx_maske = 0x%x, slots = 0x%x, slot_width = 0x%x\n",
 		     tx_mask, rx_mask, slots, slot_width);
-	if (slots > 16 || slot_width > 32) {
+	if (!slots) {
+		i2s_sc_priv->is_tdm_mode = false;
+		memset(&i2s_sc_priv->tdm_config, 0,
+		       sizeof(i2s_sc_priv->tdm_config));
+		return 0;
+	}
+
+	if (slots < 0 || slots > 16 || slot_width <= 0 || slot_width > 32 ||
+	    !(tx_mask | rx_mask) ||
+	    ((tx_mask | rx_mask) & ~GENMASK(slots - 1, 0))) {
 		dev_err(i2s_sc_priv->dev,
 			"TDM mode supports up to 16 slots and maximum slot width is 32 bit\n");
 		return -EINVAL;
@@ -899,6 +908,7 @@ static struct snd_soc_dai_driver cdns_i2s_sc_dai = {
 	.ops = &cdns_i2s_sc_dai_ops,
 	.symmetric_rate = 1,
 	.symmetric_channels = 1,
+	.symmetric_sample_bits = 1,
 };
 
 static const struct snd_soc_component_driver cdns_i2s_sc_component = {
@@ -1086,14 +1096,16 @@ static int cdns_i2s_sc_probe(struct platform_device *pdev)
 
 	i2s_sc_priv->clk_hst = devm_clk_get(&pdev->dev, "hst");
 	if (IS_ERR(i2s_sc_priv->clk_hst)) {
-		dev_err(&pdev->dev, "Failed to get clk_hst clock\n");
-		return PTR_ERR(i2s_sc_priv->clk_hst);
+		ret = PTR_ERR(i2s_sc_priv->clk_hst);
+		return dev_err_probe(&pdev->dev, ret,
+				     "Failed to get clk_hst clock\n");
 	}
 
 	i2s_sc_priv->clk_i2s = devm_clk_get(&pdev->dev, "i2s");
 	if (IS_ERR(i2s_sc_priv->clk_i2s)) {
-		dev_err(&pdev->dev, "Failed to get clk_i2s clock\n");
-		return PTR_ERR(i2s_sc_priv->clk_i2s);
+		ret = PTR_ERR(i2s_sc_priv->clk_i2s);
+		return dev_err_probe(&pdev->dev, ret,
+				     "Failed to get clk_i2s clock\n");
 	}
 
 	for (i = 0; i < AUDIO_CLK_NUM; i++) {
@@ -1121,7 +1133,7 @@ static int cdns_i2s_sc_probe(struct platform_device *pdev)
 	if (!irq_name)
 			return -ENOMEM;
 
-	ret = devm_request_irq(&pdev->dev, irq, cdns_i2s_sc_isr, IRQF_SHARED,
+	ret = devm_request_irq(&pdev->dev, irq, cdns_i2s_sc_isr, 0,
 			       irq_name, i2s_sc_priv);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to request irq: %d", ret);
