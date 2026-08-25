@@ -68,6 +68,7 @@ static struct platform_driver sky1_card_pdrv = {
 };
 module_platform_driver(sky1_card_pdrv);
 
+MODULE_SOFTDEP("pre: snd_soc_cdns_i2s_mc");
 MODULE_DESCRIPTION("Sky1 ALSA machine driver for Cix Technology");
 MODULE_AUTHOR("Xing.Wang <xing.wang@cixtech.com>");
 MODULE_LICENSE("GPL v2");
