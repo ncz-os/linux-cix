@@ -89,7 +89,8 @@ static int linlondp_cluster_dpu_links_add(struct device *dev,
 	unsigned int i;
 
 	for (i = 0; i < cl->n_mdevs; i++) {
-		cl->dpu_links[i] = device_link_add(dev, cl->mdevs[i]->dev, 0);
+		cl->dpu_links[i] = device_link_add(dev, cl->mdevs[i]->dev,
+						       DL_FLAG_STATELESS);
 		if (!cl->dpu_links[i]) {
 			linlondp_cluster_dpu_links_del(cl);
 			return -ENOMEM;
