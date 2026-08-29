@@ -341,24 +341,24 @@ static int trilin_dp_connector_get_modes(struct drm_connector *connector)
 	struct trilin_dp *dp = connector_to_dp(connector);
 	struct drm_display_info *info = &connector->display_info;
 	struct drm_display_mode *mode;
-	struct edid *edid;
+	const struct drm_edid *drm_edid;
 	int ret = 0;
 
 	DP_DEBUG("enter\n");
 
 	if (dp->platform_id != CIX_PLATFORM_EMU) {
-		edid = drm_get_edid(connector, &dp->aux.ddc);
-		if (!edid) { /* try once again */
+		drm_edid = drm_edid_read(connector);
+		if (!drm_edid) { /* try once again */
 			for (int count = 0; count < GET_EDID_RETRY_MAX;
 			     count++) {
 				msleep(20);
-				edid = drm_get_edid(connector, &dp->aux.ddc);
-				if (edid)
+				drm_edid = drm_edid_read(connector);
+				if (drm_edid)
 					break;
 			}
 		}
 
-		if (!edid) {
+		if (!drm_edid) {
 			mode = drm_dp_downstream_mode(connector->dev, dp->dpcd,
 						      dp->downstream_ports);
 			if (mode) {
@@ -376,8 +376,14 @@ static int trilin_dp_connector_get_modes(struct drm_connector *connector)
 			return ret;
 		}
 
-		ret = trilin_connector_update_modes(connector, edid);
-		kfree(edid);
+		ret = drm_edid_connector_update(connector, drm_edid);
+		if (ret) {
+			drm_edid_free(drm_edid);
+			return ret;
+		}
+
+		ret = drm_edid_connector_add_modes(connector);
+		drm_edid_free(drm_edid);
 
 		if (connector->connector_type == DRM_MODE_CONNECTOR_eDP)
 			ret += trilin_dp_add_virtual_modes_noedid(connector);
