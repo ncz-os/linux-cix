@@ -72,7 +72,8 @@ static void dptx_audio_setup(struct trilin_dp *dp, int source, int freq,
 	/* copyright*/
 	trilin_dp_write(dp, TRILIN_DPTX_SEC0_CS_COPYRIGHT + offset,
 			DPTX_CS_COPYRIGHT);
-	trilin_dp_write(dp, TRILIN_DPTX_SEC0_TIMESTAMP_INTERVAL,
+	/* Every other register here is offset by source; this one was not. */
+	trilin_dp_write(dp, TRILIN_DPTX_SEC0_TIMESTAMP_INTERVAL + offset,
 			DPTX_CS_TIMESTAMP_INTERVAL);
 	trilin_dp_write(dp, TRILIN_DPTX_SEC0_AUDIO_CHANNEL_MAP + offset,
 			DPTX_CS_AUDIO_CHANNEL_MAP_DEFAULT);
@@ -159,9 +160,31 @@ static int dptx_audio_hw_params(struct device *dev, void *data,
 		params->sample_width, params->channels,
 		params->cea.channel_allocation);
 
+	/*
+	 * hdmi-codec calls audio_startup() BEFORE hw_params(), so by the time we
+	 * get here SEC0_AUDIO_ENABLE is already 1 and the sink is receiving an
+	 * audio stream. dptx_audio_setup() then rewrites the channel status
+	 * (sampling frequency, word length, channel count) underneath it, so the
+	 * sink briefly sees a live stream whose channel status does not describe
+	 * it. That is audible as a glitch or a burst of noise every time the PCM
+	 * is (re)configured -- which is at the start of every playback, because
+	 * the HDMI sink node is created with node.suspend-on-idle=true and is
+	 * torn down after a few seconds of silence. A YouTube advert/content
+	 * boundary is exactly that: silence, suspend, resume, reconfigure.
+	 *
+	 * Mute the SDP audio stream across the reprogramming and restore it
+	 * afterwards, so the sink only ever sees channel status that matches the
+	 * samples being sent.
+	 */
+	if (dp_audio->running)
+		trilin_dp_write(dp, TRILIN_DPTX_SEC0_AUDIO_ENABLE, 0);
+
 	dptx_audio_setup(dp, 0, params->sample_rate, params->sample_width,
 			 params->channels);
 	dptx_audio_send_infoframe(dp, 0, &params->cea);
+
+	if (dp_audio->running)
+		trilin_dp_write(dp, TRILIN_DPTX_SEC0_AUDIO_ENABLE, 1);
 
 	return 0;
 }
