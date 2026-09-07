@@ -10,6 +10,7 @@
  *		Viresh Kumar <viresh.kumar@linaro.org>
  *
  */
+#include <linux/acpi.h>
 #include <linux/cpu.h>
 #include <linux/cpufreq.h>
 #include <linux/cpu_cooling.h>
@@ -678,8 +679,18 @@ of_cpufreq_cooling_register(struct cpufreq_policy *policy)
 	struct thermal_cooling_device *cdev = NULL;
 
 	if (!np) {
-		pr_err("cpufreq_cooling: OF node not available for cpu%d\n",
-		       policy->cpu);
+		/*
+		 * On ACPI systems CPUs legitimately have no OF node, so this
+		 * is an expected condition rather than an error. Only warn
+		 * loudly when device-tree is in use and the node is genuinely
+		 * missing; on ACPI demote it to a debug message.
+		 */
+		if (!acpi_disabled)
+			pr_debug("cpufreq_cooling: no OF node for cpu%d (ACPI)\n",
+				 policy->cpu);
+		else
+			pr_err("cpufreq_cooling: OF node not available for cpu%d\n",
+			       policy->cpu);
 		return NULL;
 	}
 
