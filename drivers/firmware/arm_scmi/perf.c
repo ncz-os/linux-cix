@@ -864,7 +864,7 @@ static void scmi_perf_domain_init_fc(const struct scmi_protocol_handle *ph,
 static int scmi_dvfs_device_opps_add(const struct scmi_protocol_handle *ph,
 				     struct device *dev, u32 domain)
 {
-	int idx, ret;
+	int idx, j, ret;
 	unsigned long freq;
 	struct dev_pm_opp_data data = {};
 	struct perf_dom_info *dom;
@@ -878,6 +878,24 @@ static int scmi_dvfs_device_opps_add(const struct scmi_protocol_handle *ph,
 			freq = dom->opp[idx].perf * dom->mult_factor;
 		else
 			freq = dom->opp[idx].indicative_freq * dom->mult_factor;
+
+		/*
+		 * Some firmware DVFS tables expose several performance levels
+		 * that resolve to the same frequency (e.g. the CIX Sky1 GPU
+		 * perf domain reports 800 MHz twice). Registering both makes
+		 * the OPP core log a spurious "duplicate OPPs detected"
+		 * warning, so skip a frequency an earlier level already added.
+		 */
+		for (j = 0; j < idx; j++) {
+			unsigned long prev = !dom->level_indexing_mode ?
+				dom->opp[j].perf * dom->mult_factor :
+				dom->opp[j].indicative_freq * dom->mult_factor;
+
+			if (prev == freq)
+				break;
+		}
+		if (j < idx)
+			continue;
 
 		/* All OPPs above the sustained frequency are treated as turbo */
 		data.turbo = freq > dom->sustained_freq_khz * 1000UL;
