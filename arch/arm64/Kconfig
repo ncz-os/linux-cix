@@ -2596,3 +2596,17 @@ source "drivers/acpi/Kconfig"
 source "arch/arm64/kvm/Kconfig"
 
 source "kernel/livepatch/Kconfig"
+
+config NCZ_RESUME_BEACON
+	bool "NCZ resume beacon (Sky1 suspend/resume ramoops debug)"
+	default n
+	help
+	  Write suspend/resume progress tags into the firmware-reserved
+	  ramoops console zone for post-mortem reading after a hard CPU0
+	  lock on resume.  See docs/RESUME-BEACON-PATCH-2026-08-21.md
+	  for the six instrumentation points.
+
+config NCZ_BEACON_PHYS
+	hex "NCZ beacon physical address (ramoops console zone)"
+	depends on NCZ_RESUME_BEACON
+	default 0x83d5f000
