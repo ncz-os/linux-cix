@@ -26,6 +26,7 @@
 #include <linux/reboot.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
+#include <linux/devfreq_cooling.h>
 #include <linux/thermal.h>
 #include <linux/acpi.h>
 #include <linux/workqueue.h>
@@ -617,8 +618,11 @@ static bool acpi_thermal_should_bind_cdev(struct thermal_zone_device *thermal,
 					  struct cooling_spec *c)
 {
 	struct acpi_thermal_trip *acpi_trip = trip->priv;
-	struct acpi_device *cdev_adev = cdev->devdata;
+	struct device *cdev_dev = devfreq_cooling_get_device(cdev);
+	struct acpi_device *cdev_adev;
 	int i;
+
+	cdev_adev = cdev_dev ? ACPI_COMPANION(cdev_dev) : cdev->devdata;
 
 	/* Skip critical and hot trips. */
 	if (!acpi_trip)
