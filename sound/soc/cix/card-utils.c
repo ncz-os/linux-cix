@@ -857,7 +857,8 @@ int cix_card_parse_acpi(struct cix_asoc_card *priv)
 	struct snd_soc_dai_link *link;
 	struct dai_link_info *link_info;
 	struct device *dev = card->dev;
-	int ret, i, j, num_links = 0;
+	struct snd_soc_codec_conf *codec_conf;
+	int ret, i, j, num_links = 0, num_confs = 0;
 
 	ret = cix_gpio_init(priv);
 	if (ret)
@@ -891,9 +892,23 @@ int cix_card_parse_acpi(struct cix_asoc_card *priv)
 	link->trigger_start = SND_SOC_TRIGGER_ORDER_DEFAULT;
 	link->trigger_stop = SND_SOC_TRIGGER_ORDER_LDC;
 
+	/*
+	 * Each DP audio output binds an independent hdmi-audio-codec
+	 * component. That codec sets no name_prefix, so with more than one
+	 * DP present every instance contributes identically named DAPM
+	 * widgets ("TX", "RX", "I2S Playback") to the same card, which makes
+	 * the DAPM route resolver log "source/sink widget ... overwritten".
+	 * Give each DP codec a unique prefix so its widgets stay distinct.
+	 */
+	codec_conf = devm_kcalloc(dev, SKY1_AUDSS_DP_AUDIO_COUNT,
+				  sizeof(*codec_conf), GFP_KERNEL);
+	if (!codec_conf)
+		return -ENOMEM;
+
 	card->name = "cix,sky1";
 	card->num_links = num_links;
 	card->dai_link = link;
+	card->codec_conf = codec_conf;
 	card->suspend_post = cix_card_suspend_post;
 	card->resume_pre = cix_card_resume_pre;
 	priv->link_info = link_info;
@@ -972,9 +987,20 @@ int cix_card_parse_acpi(struct cix_asoc_card *priv)
 			goto err;
 		}
 
+		codec_conf[num_confs].dlc.name = link->codecs->name;
+		codec_conf[num_confs].name_prefix =
+			devm_kasprintf(dev, GFP_KERNEL, "DP%d", i);
+		if (!codec_conf[num_confs].name_prefix) {
+			ret = -ENOMEM;
+			goto err;
+		}
+		num_confs++;
+
 		link++;
 		link_info++;
 	}
+
+	card->num_configs = num_confs;
 
 err:
 	return ret;
