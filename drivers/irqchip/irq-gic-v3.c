@@ -9,6 +9,7 @@
 #include <linux/acpi.h>
 #include <linux/cpu.h>
 #include <linux/cpu_pm.h>
+#include <linux/ncz-resume-beacon.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/irqdomain.h>
@@ -1479,6 +1480,14 @@ static int gic_retrigger(struct irq_data *data)
 static int gic_cpu_pm_notifier(struct notifier_block *self,
 			       unsigned long cmd, void *v)
 {
+	/*
+	 * NCZ resume beacon R5: entry to the GICv3 per-CPU resume
+	 * hook.  The v7.2-rc7 GICv3 driver uses a cpu_pm notifier
+	 * (the syscore resume callback named in the design notes
+	 * does not exist in mainline v7.2).  Reaching CPU_PM_EXIT
+	 * on CPU0 proves the GIC redistributor bring-up proceeded.
+	 */
+	ncz_beacon("R5-gic_pm_exit");
 	if (cmd == CPU_PM_EXIT || cmd == CPU_PM_ENTER_FAILED) {
 		if (gic_dist_security_disabled())
 			gic_enable_redist(true);
