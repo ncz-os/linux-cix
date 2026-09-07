@@ -730,7 +730,17 @@ static void rpmsg_recv_done(struct virtqueue *rvq)
 
 	msg = virtqueue_get_buf(rvq, &len);
 	if (!msg) {
-		dev_err(dev, "uhm, incoming signal, but no used buffer ?\n");
+		/*
+		 * Not necessarily an error: a driver may legitimately force this
+		 * callback to poll for work. cix_dsp_rproc does exactly that --
+		 * rpmsg-lite on the DSP puts TX messages in the avail ring rather
+		 * than the used ring, so vring_interrupt() cannot see them and the
+		 * driver force-fires the callback on a timer. Each empty poll then
+		 * printed at dev_err level, flooding the log at ~16 lines/s on
+		 * CIX Sky1. Rate-limit it: the diagnostic is still available, the
+		 * flood is not.
+		 */
+		dev_err_ratelimited(dev, "uhm, incoming signal, but no used buffer ?\n");
 		return;
 	}
 
