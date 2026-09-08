@@ -88,3 +88,4 @@ endif
 
 # for cleaning
 subdir- += vdso vdso32
+obj-$(CONFIG_NCZ_RESUME_BEACON) += ncz-resume-beacon.o

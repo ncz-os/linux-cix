@@ -28,6 +28,7 @@
 #include <linux/swait.h>
 #include <linux/ftrace.h>
 #include <trace/events/power.h>
+#include <linux/ncz-resume-beacon.h>
 #include <linux/compiler.h>
 #include <linux/moduleparam.h>
 #include <linux/fs.h>
@@ -465,7 +466,25 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 		if (!(suspend_test(TEST_CORE) || *wakeup)) {
 			trace_suspend_resume(TPS("machine_suspend"),
 				state, true);
+			/*
+			 * NCZ resume beacon R1: entry to platform
+			 * suspend_ops->enter() on the suspending CPU.
+			 * If R1 appears in the next-boot ramoops dump
+			 * but R2 does not, the hang is inside the
+			 * platform/firmware sleep handoff.
+			 */
+			ncz_beacon("R1-BeforeSuspendOpsEnter");
 			error = suspend_ops->enter(state);
+			/*
+			 * NCZ resume beacon R2: return from platform
+			 * suspend_ops->enter().  This is the proof that
+			 * the kernel-visible portion of the platform
+			 * resume path completed.  If R2 appears but R3
+			 * does not, the lock is between the suspend_ops
+			 * return and the first instruction of the
+			 * arm64 cpu_suspend_exit trampoline.
+			 */
+			ncz_beacon("R2-AfterSuspendOpsEnter");
 			trace_suspend_resume(TPS("machine_suspend"),
 				state, false);
 		} else if (*wakeup) {
@@ -481,6 +500,12 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 
  Enable_cpus:
 	pm_sleep_enable_secondary_cpus();
+	/*
+	 * NCZ resume beacon R6: end of the coordinator-only resume
+	 * path.  Reaching this point means CPU0 got all the way through
+	 * the platform resume and the secondary bring-up is proceeding.
+	 */
+	ncz_beacon("R6-SecondaryCpusReEnabled");
 
  Platform_wake:
 	platform_resume_noirq(state);
