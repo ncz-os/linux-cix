@@ -118,8 +118,9 @@ static int dptx_audio_startup(struct device *dev, void *data)
 	struct trilin_dp *dp = (struct trilin_dp *)data;
 	struct dptx_audio *dp_audio = &dp->dp_audio;
 
+	/* No sink: do not enable playback or parse an intentionally empty ELD. */
 	if (!trilin_dp_plugged_status(dp))
-		return 0;
+		return -ENODEV;
 
 	trilin_dp_write(dp, TRILIN_DPTX_SEC0_AUDIO_ENABLE, 1);
 
