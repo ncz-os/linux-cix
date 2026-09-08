@@ -22,6 +22,8 @@
 #include <linux/smp.h>
 #include <linux/sysfs.h>
 
+#include "cacheinfo_internal.h"
+
 /* pointer to per cpu cacheinfo */
 static DEFINE_PER_CPU(struct cpu_cacheinfo, ci_cpu_cacheinfo);
 #define ci_cacheinfo(cpu)	(&per_cpu(ci_cpu_cacheinfo, cpu))
@@ -38,9 +40,29 @@ struct cpu_cacheinfo *get_cpu_cacheinfo(unsigned int cpu)
 	return ci_cacheinfo(cpu);
 }
 
-static inline bool cache_leaves_are_shared(struct cacheinfo *this_leaf,
-					   struct cacheinfo *sib_leaf)
+static bool cache_id_is_global(const struct cacheinfo *leaf)
 {
+	return (leaf->attributes & (CACHE_ID | CACHE_ID_GLOBAL)) ==
+		(CACHE_ID | CACHE_ID_GLOBAL);
+}
+
+bool cacheinfo_cache_leaves_are_shared(const struct cacheinfo *this_leaf,
+				       const struct cacheinfo *sib_leaf)
+{
+	if (this_leaf->type != sib_leaf->type)
+		return false;
+
+	/*
+	 * A globally unique firmware ID identifies a physical cache even if
+	 * heterogeneous CPUs reach it at different relative levels.
+	 */
+	if (cache_id_is_global(this_leaf) && cache_id_is_global(sib_leaf))
+		return this_leaf->id == sib_leaf->id;
+
+	/* Other cache IDs and firmware tokens are only level-local. */
+	if (this_leaf->level != sib_leaf->level)
+		return false;
+
 	/*
 	 * For non DT/ACPI systems, assume unique level 1 caches,
 	 * system-wide shared caches for all other levels.
@@ -98,7 +120,7 @@ bool last_level_cache_is_shared(unsigned int cpu_x, unsigned int cpu_y)
 	llc_x = per_cpu_cacheinfo_idx(cpu_x, cache_leaves(cpu_x) - 1);
 	llc_y = per_cpu_cacheinfo_idx(cpu_y, cache_leaves(cpu_y) - 1);
 
-	return cache_leaves_are_shared(llc_x, llc_y);
+	return cacheinfo_cache_leaves_are_shared(llc_x, llc_y);
 }
 
 #ifdef CONFIG_OF
@@ -441,16 +463,8 @@ static int cache_shared_cpu_map_setup(unsigned int cpu)
 			for (sib_index = 0; sib_index < cache_leaves(i); sib_index++) {
 				sib_leaf = per_cpu_cacheinfo_idx(i, sib_index);
 
-				/*
-				 * Comparing cache IDs only makes sense if the leaves
-				 * belong to the same cache level of same type. Skip
-				 * the check if level and type do not match.
-				 */
-				if (sib_leaf->level != this_leaf->level ||
-				    sib_leaf->type != this_leaf->type)
-					continue;
-
-				if (cache_leaves_are_shared(this_leaf, sib_leaf)) {
+				if (cacheinfo_cache_leaves_are_shared(this_leaf,
+								      sib_leaf)) {
 					cpumask_set_cpu(cpu, &sib_leaf->shared_cpu_map);
 					cpumask_set_cpu(i, &this_leaf->shared_cpu_map);
 					break;
@@ -482,16 +496,8 @@ static void cache_shared_cpu_map_remove(unsigned int cpu)
 			for (sib_index = 0; sib_index < cache_leaves(sibling); sib_index++) {
 				sib_leaf = per_cpu_cacheinfo_idx(sibling, sib_index);
 
-				/*
-				 * Comparing cache IDs only makes sense if the leaves
-				 * belong to the same cache level of same type. Skip
-				 * the check if level and type do not match.
-				 */
-				if (sib_leaf->level != this_leaf->level ||
-				    sib_leaf->type != this_leaf->type)
-					continue;
-
-				if (cache_leaves_are_shared(this_leaf, sib_leaf)) {
+				if (cacheinfo_cache_leaves_are_shared(this_leaf,
+								      sib_leaf)) {
 					cpumask_clear_cpu(cpu, &sib_leaf->shared_cpu_map);
 					cpumask_clear_cpu(sibling, &this_leaf->shared_cpu_map);
 					break;
