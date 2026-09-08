@@ -5,12 +5,14 @@
  * 2) platform_data being correctly configured
  */
 
+#include <linux/acpi.h>
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
+#include <linux/property.h>
 #include <linux/backlight.h>
 #include <linux/err.h>
 #include <linux/pwm.h>
@@ -131,7 +133,7 @@ static const struct backlight_ops pwm_backlight_ops = {
 	.update_status	= pwm_backlight_update_status,
 };
 
-#ifdef CONFIG_OF
+#if defined(CONFIG_OF) || defined(CONFIG_ACPI)
 #define PWM_LUMINANCE_SHIFT	16
 #define PWM_LUMINANCE_SCALE	(1 << PWM_LUMINANCE_SHIFT) /* luminance scale */
 
@@ -215,19 +217,16 @@ int pwm_backlight_brightness_default(struct device *dev,
 	return 0;
 }
 
-static int pwm_backlight_parse_dt(struct device *dev,
+static int pwm_backlight_parse_fwnode(struct device *dev,
 				  struct platform_pwm_backlight_data *data)
 {
-	struct device_node *node = dev->of_node;
 	unsigned int num_levels;
 	unsigned int num_steps = 0;
-	struct property *prop;
 	unsigned int *table;
-	int length;
 	u32 value;
 	int ret;
 
-	if (!node)
+	if (!dev_fwnode(dev))
 		return -ENODEV;
 
 	memset(data, 0, sizeof(*data));
@@ -236,34 +235,36 @@ static int pwm_backlight_parse_dt(struct device *dev,
 	 * These values are optional and set as 0 by default, the out values
 	 * are modified only if a valid u32 value can be decoded.
 	 */
-	of_property_read_u32(node, "post-pwm-on-delay-ms",
+	device_property_read_u32(dev, "post-pwm-on-delay-ms",
 			     &data->post_pwm_on_delay);
-	of_property_read_u32(node, "pwm-off-delay-ms", &data->pwm_off_delay);
+	device_property_read_u32(dev, "pwm-off-delay-ms", &data->pwm_off_delay);
 
 	/*
 	 * Determine the number of brightness levels, if this property is not
 	 * set a default table of brightness levels will be used.
 	 */
-	prop = of_find_property(node, "brightness-levels", &length);
-	if (!prop)
+	if (!device_property_present(dev, "brightness-levels"))
 		return 0;
 
-	num_levels = length / sizeof(u32);
+	ret = device_property_count_u32(dev, "brightness-levels");
+	if (ret < 0)
+		return ret;
+	num_levels = ret;
 
-	/* read brightness levels from DT property */
+	/* Read brightness levels from firmware. */
 	if (num_levels > 0) {
 		data->levels = devm_kcalloc(dev, num_levels,
 					    sizeof(*data->levels), GFP_KERNEL);
 		if (!data->levels)
 			return -ENOMEM;
 
-		ret = of_property_read_u32_array(node, "brightness-levels",
+		ret = device_property_read_u32_array(dev, "brightness-levels",
 						 data->levels,
 						 num_levels);
 		if (ret < 0)
 			return ret;
 
-		ret = of_property_read_u32(node, "default-brightness-level",
+		ret = device_property_read_u32(dev, "default-brightness-level",
 					   &value);
 		if (ret < 0)
 			return ret;
@@ -275,7 +276,7 @@ static int pwm_backlight_parse_dt(struct device *dev,
 		 * interpolation between each of the values of brightness levels
 		 * and creates a new pre-computed table.
 		 */
-		of_property_read_u32(node, "num-interpolated-steps",
+		device_property_read_u32(dev, "num-interpolated-steps",
 				     &num_steps);
 
 		/*
@@ -347,14 +348,8 @@ static int pwm_backlight_parse_dt(struct device *dev,
 	return 0;
 }
 
-static const struct of_device_id pwm_backlight_of_match[] = {
-	{ .compatible = "pwm-backlight" },
-	{ }
-};
-
-MODULE_DEVICE_TABLE(of, pwm_backlight_of_match);
 #else
-static int pwm_backlight_parse_dt(struct device *dev,
+static int pwm_backlight_parse_fwnode(struct device *dev,
 				  struct platform_pwm_backlight_data *data)
 {
 	return -ENODEV;
@@ -424,13 +419,13 @@ static int pwm_backlight_initial_power_state(const struct pwm_bl_data *pb)
 	 * right now we do not.
 	 */
 
-	/* Not booted with device tree or no phandle link to the node */
-	if (!node || !node->phandle)
+	/* CIX ACPI backlights are controlled by the eDP panel driver. */
+	if (!has_acpi_companion(pb->dev) && (!node || !node->phandle))
 		return BACKLIGHT_POWER_ON;
 
 	/*
-	 * If the driver is probed from the device tree and there is a
-	 * phandle link pointing to the backlight node, it is safe to
+	 * For an ACPI backlight or a device tree node with a phandle
+	 * link pointing to it, it is safe to
 	 * assume that another driver will enable the backlight at the
 	 * appropriate time. Therefore, if it is disabled, keep it so.
 	 */
@@ -449,7 +444,7 @@ static int pwm_backlight_probe(struct platform_device *pdev)
 	int ret;
 
 	if (!data) {
-		ret = pwm_backlight_parse_dt(&pdev->dev, &defdata);
+		ret = pwm_backlight_parse_fwnode(&pdev->dev, &defdata);
 		if (ret < 0)
 			return dev_err_probe(&pdev->dev, ret,
 					     "failed to find platform data\n");
@@ -690,11 +685,29 @@ static const struct dev_pm_ops pwm_backlight_pm_ops = {
 #endif
 };
 
+#ifdef CONFIG_OF
+static const struct of_device_id pwm_backlight_of_match[] = {
+	{ .compatible = "pwm-backlight" },
+	{ }
+};
+
+MODULE_DEVICE_TABLE(of, pwm_backlight_of_match);
+#endif
+
+#ifdef CONFIG_ACPI
+static const struct acpi_device_id pwm_backlight_acpi_match[] = {
+	{ "CIXH5041", 0 },
+	{ }
+};
+MODULE_DEVICE_TABLE(acpi, pwm_backlight_acpi_match);
+#endif
+
 static struct platform_driver pwm_backlight_driver = {
 	.driver		= {
 		.name		= "pwm-backlight",
 		.pm		= &pwm_backlight_pm_ops,
 		.of_match_table	= of_match_ptr(pwm_backlight_of_match),
+		.acpi_match_table = ACPI_PTR(pwm_backlight_acpi_match),
 	},
 	.probe		= pwm_backlight_probe,
 	.remove		= pwm_backlight_remove,
