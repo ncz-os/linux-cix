@@ -3,6 +3,7 @@
  * Copyright 2025 Cix Technology Group Co., Ltd.
  */
 
+#include <linux/acpi.h>
 #include <linux/device.h>
 #include <linux/err.h>
 #include <linux/io.h>
@@ -560,6 +561,7 @@ static int cix_mbox_probe(struct platform_device *pdev)
 	struct cix_mbox_priv *priv;
 	struct resource *res;
 	const char *dir_str;
+	u32 dir;
 	int ret;
 
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
@@ -587,15 +589,25 @@ static int cix_mbox_probe(struct platform_device *pdev)
 	if (priv->irq < 0)
 		return priv->irq;
 
-	if (device_property_read_string(dev, "cix,mbox-dir", &dir_str))
-		return dev_err_probe(dev, -EINVAL, "cix,mbox-dir property not found\n");
-
-	if (!strcmp(dir_str, "tx"))
-		priv->dir = 0;
-	else if (!strcmp(dir_str, "rx"))
-		priv->dir = 1;
-	else
-		return dev_err_probe(dev, -EINVAL, "cix,mbox-dir=%s is not expected\n", dir_str);
+	if (ACPI_COMPANION(dev)) {
+		if (device_property_read_u32(dev, "cix,mbox_dir", &dir))
+			return dev_err_probe(dev, -EINVAL, "cix,mbox_dir property not found\n");
+		if (dir == 0)
+			priv->dir = CIX_MBOX_TX;
+		else if (dir == 1)
+			priv->dir = CIX_MBOX_RX;
+		else
+			return dev_err_probe(dev, -EINVAL, "cix,mbox_dir=%u is not expected\n", dir);
+	} else {
+		if (device_property_read_string(dev, "cix,mbox-dir", &dir_str))
+			return dev_err_probe(dev, -EINVAL, "cix,mbox-dir property not found\n");
+		if (!strcmp(dir_str, "tx"))
+			priv->dir = CIX_MBOX_TX;
+		else if (!strcmp(dir_str, "rx"))
+			priv->dir = CIX_MBOX_RX;
+		else
+			return dev_err_probe(dev, -EINVAL, "cix,mbox-dir=%s is not expected\n", dir_str);
+	}
 
 	cix_mbox_init(priv);
 
