@@ -529,6 +529,30 @@ static struct drm_panel *find_panel_by_fwnode(const struct fwnode_handle *fwnode
 	return ERR_PTR(-EPROBE_DEFER);
 }
 
+/**
+ * fwnode_drm_find_panel - look up and reference a panel by fwnode
+ * @fwnode: fwnode handle describing the panel
+ *
+ * Looks up the panel device whose fwnode matches @fwnode and returns
+ * a counted reference to it (the caller must release via drm_panel_put()).
+ *
+ * Behaves identically to of_drm_find_panel() but accepts any fwnode
+ * (ACPI or DT) instead of a struct device_node. Returns ERR_PTR(-ENODEV)
+ * if the panel is not available, ERR_PTR(-EPROBE_DEFER) if it has not
+ * registered yet, or a valid panel pointer on success.
+ *
+ * NCZ CIX Sky1: exposed as a public symbol so the in-tree CIX dptx
+ * driver (drivers/gpu/drm/cix/dptx/trilin_dptx.c) can look up an
+ * eDP panel described via ACPI _DSD reference under Sky1 BIOS v1.0,
+ * where the fwnode handle comes from fwnode_find_reference() rather
+ * than of_drm_find_panel()'s device_node.
+ */
+struct drm_panel *fwnode_drm_find_panel(const struct fwnode_handle *fwnode)
+{
+	return find_panel_by_fwnode(fwnode);
+}
+EXPORT_SYMBOL(fwnode_drm_find_panel);
+
 /* Find panel by follower device */
 static struct drm_panel *find_panel_by_dev(struct device *follower_dev)
 {
