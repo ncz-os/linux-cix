@@ -37,28 +37,37 @@
 #define APP_SUBOFFSET_STATUS_REG_X1A 0x60
 #define APP_SUBOFFSET_STATUS_REG_X1B 0x80
 
-#define I_CFG_5 (CDNS_PCIE_IP_REG_BANK_BASE + 0x414)
-#define I_CFG_7 (CDNS_PCIE_IP_REG_BANK_BASE + 0x41c)
-#define I_CFG_9 (CDNS_PCIE_IP_REG_BANK_BASE + 0x724)
-#define IP_REG_I_DBG_STS_0 (CDNS_PCIE_IP_REG_BANK_BASE + 0x420)
+#define SKY1_IP_REG_BANK 0x1000
+#define SKY1_IP_CFG_CTRL_REG_BANK 0x4c00
+#define SKY1_IP_AXI_MASTER_COMMON 0xf000
+#define SKY1_AXI_SLAVE 0x9000
+#define SKY1_AXI_MASTER 0xb000
+#define SKY1_AXI_HLS_REGISTERS 0xc000
+#define SKY1_AXI_RAS_REGISTERS 0xe000
+#define SKY1_DTI_REGISTERS 0xd000
 
-#define I_HAL_CTRL_DEC_TLP_FILTER (CDNS_PCIE_IP_REG_BANK_BASE + 0x100c)
+#define I_CFG_5 (SKY1_IP_REG_BANK + 0x414)
+#define I_CFG_7 (SKY1_IP_REG_BANK + 0x41c)
+#define I_CFG_9 (SKY1_IP_REG_BANK + 0x724)
+#define IP_REG_I_DBG_STS_0 (SKY1_IP_REG_BANK + 0x420)
+
+#define I_HAL_CTRL_DEC_TLP_FILTER (SKY1_IP_REG_BANK + 0x100c)
 
 /* local interrupt */
-#define I_LOCAL_ERR_STS_REG0 (CDNS_PCIE_IP_REG_BANK_BASE + 0x1414)
-#define I_LOCAL_ERR_MASK_REG0 (CDNS_PCIE_IP_REG_BANK_BASE + 0x1418)
-#define I_LOCAL_ERR_STS_REG1 (CDNS_PCIE_IP_REG_BANK_BASE + 0x1448)
-#define I_LOCAL_ERR_MASK_REG1 (CDNS_PCIE_IP_REG_BANK_BASE + 0x144c)
+#define I_LOCAL_ERR_STS_REG0 (SKY1_IP_REG_BANK + 0x1414)
+#define I_LOCAL_ERR_MASK_REG0 (SKY1_IP_REG_BANK + 0x1418)
+#define I_LOCAL_ERR_STS_REG1 (SKY1_IP_REG_BANK + 0x1448)
+#define I_LOCAL_ERR_MASK_REG1 (SKY1_IP_REG_BANK + 0x144c)
 
-#define POWER_STATE_CHANGE_CTRL (CDNS_PCIE_IP_REG_BANK_BASE + 0x1430)
+#define POWER_STATE_CHANGE_CTRL (SKY1_IP_REG_BANK + 0x1430)
 
 /* indication bit */
-#define LTSSM_TRANS_DEBUG_CTRL_REG0 (CDNS_PCIE_IP_REG_BANK_BASE + 0x6cc)
-#define LTSSM_TRANS_DEBUG_CTRL_REG1 (CDNS_PCIE_IP_REG_BANK_BASE + 0x6d0)
-#define LTSSM_TRANS_DEBUG_CTRL_REG2 (CDNS_PCIE_IP_REG_BANK_BASE + 0x6d4)
-#define LTSSM_TRANS_DEBUG_CTRL_REG3 (CDNS_PCIE_IP_REG_BANK_BASE + 0x6d8)
-#define LTSSM_TRANS_DEBUG_CTRL_STATUS (CDNS_PCIE_IP_REG_BANK_BASE + 0x6dc)
-#define AXI_SLAVE_CTRL (CDNS_PCIE_IP_AXI_SLAVE_BASE + 0x4)
+#define LTSSM_TRANS_DEBUG_CTRL_REG0 (SKY1_IP_REG_BANK + 0x6cc)
+#define LTSSM_TRANS_DEBUG_CTRL_REG1 (SKY1_IP_REG_BANK + 0x6d0)
+#define LTSSM_TRANS_DEBUG_CTRL_REG2 (SKY1_IP_REG_BANK + 0x6d4)
+#define LTSSM_TRANS_DEBUG_CTRL_REG3 (SKY1_IP_REG_BANK + 0x6d8)
+#define LTSSM_TRANS_DEBUG_CTRL_STATUS (SKY1_IP_REG_BANK + 0x6dc)
+#define AXI_SLAVE_CTRL (SKY1_AXI_SLAVE + 0x4)
 
 #define BF_MAX_LANE_NUM_MASK GENMASK(17, 15)
 #define MAX_EVAL_ITER_SHIFT 18
@@ -157,6 +166,18 @@ static const struct sky1_pcie_ctrl_desc sky1_pcie_desc[] = {
 		.sbsa = 0x1,
 	},
 	{}
+};
+
+static const struct cdns_plat_pcie_of_data sky1_reg_offsets = {
+	.is_rc = 1,
+	.ip_reg_bank_offset = SKY1_IP_REG_BANK,
+	.ip_cfg_ctrl_reg_offset = SKY1_IP_CFG_CTRL_REG_BANK,
+	.axi_mstr_common_offset = SKY1_IP_AXI_MASTER_COMMON,
+	.axi_slave_offset = SKY1_AXI_SLAVE,
+	.axi_master_offset = SKY1_AXI_MASTER,
+	.axi_hls_offset = SKY1_AXI_HLS_REGISTERS,
+	.axi_ras_offset = SKY1_AXI_RAS_REGISTERS,
+	.axi_dti_offset = SKY1_DTI_REGISTERS,
 };
 
 u32 sky1_pcie_get_bits32(void __iomem *addr, u32 bits_msk)
@@ -2105,8 +2126,8 @@ static void sky1_pcie_pme_turn_off(struct sky1_pcie *pcie)
 {
 	u32 offset;
 
-	offset = CDNS_PCIE_NORMAL_MSG_ROUTING(MSG_ROUTING_BCAST) |
-		 CDNS_PCIE_NORMAL_MSG_CODE(MSG_CODE_PME_TURN_OFF);
+	offset = CDNS_PCIE_NORMAL_MSG_ROUTING(PCIE_MSG_TYPE_R_BC) |
+		 CDNS_PCIE_NORMAL_MSG_CODE(PCIE_MSG_CODE_PME_TURN_OFF);
 	writel(0, pcie->msg_base + offset);
 	usleep_range(1000, 10000);
 }
@@ -2194,7 +2215,7 @@ static int _sky1_pcie_syscore_op_shutdown(struct sky1_pcie *pcie)
 	return 0;
 }
 
-static void sky1_pcie_syscore_op_shutdown(void)
+static void sky1_pcie_syscore_op_shutdown(void *data)
 {
 	struct sky1_pcie *pcie;
 
@@ -2203,8 +2224,12 @@ static void sky1_pcie_syscore_op_shutdown(void)
 	}
 }
 
-static struct syscore_ops sky1_pcie_syscore_ops = {
+static const struct syscore_ops sky1_pcie_syscore_ops = {
 	.shutdown = sky1_pcie_syscore_op_shutdown,
+};
+
+static struct syscore sky1_pcie_syscore = {
+	.ops = &sky1_pcie_syscore_ops,
 };
 
 static void sky1_pcie_x211_enum_lock(struct sky1_pcie *pcie, bool lock)
@@ -2244,7 +2269,7 @@ static int sky1_pcie_really_probe(void *p)
 	}
 	sky1_pcie_enable_irq(pcie, true);
 
-	ret = cdns_pcie_host_setup(rc);
+	ret = cdns_pcie_hpa_host_setup(rc);
 	if (ret < 0)
 		goto err_ecam_free;
 
@@ -2255,7 +2280,7 @@ static int sky1_pcie_really_probe(void *p)
 	mutex_lock(&sky1_init_mutex);
 	/* Register for syscore ops only when first instance probed */
 	if (list_empty(&sky1_pcie_list))
-		register_syscore_ops(&sky1_pcie_syscore_ops);
+		register_syscore(&sky1_pcie_syscore);
 
 	/*
 	 * Add the qcom_pcie list of each PCIe instance probed to
@@ -2355,8 +2380,7 @@ static int sky1_pcie_probe(struct platform_device *pdev)
 	bridge->ops = &sky1_pcie_own_ops;
 	bridge->child_ops = (struct pci_ops *)&pci_generic_ecam_ops.pci_ops;
 	rc = pci_host_bridge_priv(bridge);
-	rc->ecam_support_flag = pcie->ecam_support_flag;
-	rc->id = pcie->id;
+	rc->ecam_supported = pcie->ecam_support_flag;
 	rc->cfg_base = pcie->cfg->win;
 	rc->cfg_res = &pcie->cfg->res;
 
@@ -2364,8 +2388,10 @@ static int sky1_pcie_probe(struct platform_device *pdev)
 	cdns_pcie->dev = dev;
 	cdns_pcie->ops = &sky1_pcie_ops;
 	cdns_pcie->reg_base = pcie->reg_base;
-	cdns_pcie->plat_emu = (pcie->plat == PCIE_PLAT_EMU) ? true : false;
 	cdns_pcie->msg_res = pcie->msg_res;
+	cdns_pcie->is_rc = true;
+	cdns_pcie->is_hpa = true;
+	cdns_pcie->cdns_pcie_reg_offsets = &sky1_reg_offsets;
 
 	pcie->cdns_pcie = cdns_pcie;
 	pcie->cdns_pcie_rc = rc;
@@ -2410,7 +2436,7 @@ err_vsupply_3v3:
 	return ret;
 }
 
-static int sky1_pcie_remove(struct platform_device *pdev)
+static void sky1_pcie_remove(struct platform_device *pdev)
 {
 	struct sky1_pcie *pcie = platform_get_drvdata(pdev);
 	struct device *dev = &pdev->dev;
@@ -2447,10 +2473,8 @@ static int sky1_pcie_remove(struct platform_device *pdev)
 	if (pcie->is_probe) {
 		list_del(&pcie->list);
 		if (list_empty(&sky1_pcie_list))
-			unregister_syscore_ops(&sky1_pcie_syscore_ops);
+			unregister_syscore(&sky1_pcie_syscore);
 	}
-
-	return 0;
 }
 
 static const struct sky1_pcie_data sky1_pcie_rc_data = {
