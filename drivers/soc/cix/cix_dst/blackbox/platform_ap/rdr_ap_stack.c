@@ -15,6 +15,7 @@
 #include "include/rdr_ap_adapter.h"
 #include "../rdr_print.h"
 #include "../rdr_inner.h"
+#include <linux/platform_device.h>
 
 #define LASTSTACK_MAGIC 0xbabeface
 

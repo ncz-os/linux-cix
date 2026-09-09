@@ -39,6 +39,7 @@
 #include "rdr_inner.h"
 #include "rdr_field.h"
 #include "rdr_print.h"
+#include <linux/platform_device.h>
 
 #define HIMNTN_FIRST_NV_DATA 0
 #define HIMNTN_SECOND_NV_DATA 1

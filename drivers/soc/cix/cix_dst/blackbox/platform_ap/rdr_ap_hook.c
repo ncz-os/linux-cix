@@ -28,6 +28,7 @@
 #include "include/rdr_ap_adapter.h"
 #include "../rdr_print.h"
 #include "../rdr_field.h"
+#include <linux/platform_device.h>
 
 #define TRACE_INIT_NAME(name) name##_trace_init
 #define TRACE_GET_CLOCK(name) name##_get_clock
