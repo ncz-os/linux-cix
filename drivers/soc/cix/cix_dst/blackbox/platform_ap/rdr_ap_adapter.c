@@ -30,6 +30,7 @@
 #include "include/rdr_ap_adapter.h"
 #include "../rdr_inner.h"
 #include "../rdr_print.h"
+#include <linux/platform_device.h>
 
 static struct ap_eh_root *g_eh_ap;
 static int g_rdr_ap_init;

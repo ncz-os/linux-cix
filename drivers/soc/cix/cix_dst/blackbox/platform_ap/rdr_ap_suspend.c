@@ -8,6 +8,7 @@
 #include <linux/pm_wakeup.h>
 #include "include/rdr_ap_adapter.h"
 #include "../rdr_print.h"
+#include <linux/platform_device.h>
 
 #define SUSPEND_MAGIC 0x1F2E3D4C
 #define MAX_WAKEUP_NAME_LEN 64

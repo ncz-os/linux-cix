@@ -18,6 +18,7 @@
  */
 
 #include "rdr_exception_trace.h"
+#include <linux/platform_device.h>
 
 struct exception_core_s {
 	u32 offset;

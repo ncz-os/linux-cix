@@ -13,6 +13,7 @@
 #include <mntn_subtype_exception.h>
 #include "dst_print.h"
 #include <linux/soc/cix/cix_ap2se_ipc.h>
+#include <linux/platform_device.h>
 
 #define DDR_STATUS_MASTER 0x574
 #define DDR_OUT_OF_RANGE1 0x5e8
