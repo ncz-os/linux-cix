@@ -27,6 +27,7 @@
 #include "pcie-cadence.h"
 #include "pci-sky1-cix.h"
 #include "pci-sky1-debugfs.h"
+#include <linux/platform_device.h>
 
 #define APP_SUBOFFSET_STRAP_REG_X2 0x40
 #define APP_SUBOFFSET_STRAP_REG_X1A 0x60

@@ -7,6 +7,7 @@
 #include "include/rdr_ap_adapter.h"
 #include "include/rdr_ap_moddump.h"
 #include "../rdr_print.h"
+#include <linux/platform_device.h>
 
 #define MODMEM_PROP_INIT(name) PROPERTY_INIT(ap_dump_mem_modu_##name##_size)
 

@@ -10,6 +10,7 @@
 #include "include/rdr_ap_adapter.h"
 #include "include/rdr_ap_logbuf.h"
 #include "../rdr_print.h"
+#include <linux/platform_device.h>
 
 #define LOGMEM_PROP_INIT(name) PROPERTY_INIT(ap_log_##name##_size)
 #define IS_PSTORE BIT(0)
