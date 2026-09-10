@@ -943,7 +943,7 @@ static void sky1_pcie_set_speed_retrain(struct sky1_pcie *pcie)
 	val |= PCI_EXP_LNKCTL_RL;
 	writel(val, reg_base + offset + PCI_EXP_LNKCTL);
 
-	for (retries = 0; retries < LINK_WAIT_MAX_RETRIES; retries++) {
+	for (retries = 0; retries < PCIE_LINK_WAIT_MAX_RETRIES; retries++) {
 		if (sky1_pcie_link_up(pcie->cdns_pcie)) {
 			msleep(20);
 			break;
