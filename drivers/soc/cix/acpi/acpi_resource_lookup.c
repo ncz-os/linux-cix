@@ -210,18 +210,22 @@ static int cma_init_reserved_memory(phys_addr_t base, phys_addr_t size,
 	 * subsystems (like slab allocator) are available.
 	 */
 	cma = &cma_areas[cma_area_count];
+	cma_area_count++;
 
 	if (name)
-		snprintf(cma->name, CMA_MAX_NAME, name);
+		strscpy(cma->name, name);
 	else
-		snprintf(cma->name, CMA_MAX_NAME,  "cma%d\n", cma_area_count);
+		snprintf(cma->name, CMA_MAX_NAME, "cma%d", cma_area_count);
 
-	cma->base_pfn = PFN_DOWN(base);
-	cma->count = size >> PAGE_SHIFT;
+	cma->available_count = cma->count = size >> PAGE_SHIFT;
 	cma->order_per_bit = order_per_bit;
+	cma->ranges[0].base_pfn = PFN_DOWN(base);
+	cma->ranges[0].early_pfn = PFN_DOWN(base);
+	cma->ranges[0].count = cma->count;
+	cma->nranges = 1;
+	cma->nid = NUMA_NO_NODE;
 	*res_cma = cma;
-	cma_area_count++;
-	totalcma_pages += (size / PAGE_SIZE);
+	totalcma_pages += cma->count;
 
 	return 0;
 }
