@@ -19,7 +19,7 @@ enum {
 
 static bool pcie_pnp_en = false;
 static bool usb_pnp_en = false;
-static bool acpi_scmi_en = true;
+static bool acpi_scmi_en = false;
 
 static int __init pcie_pnp_update(char *str)
 {
