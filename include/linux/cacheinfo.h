@@ -22,7 +22,8 @@ extern unsigned int coherency_max_size;
 
 /**
  * struct cacheinfo - represent a cache leaf node
- * @id: This cache's id. It is unique among caches with the same (type, level).
+ * @id: This cache's id. It is unique among caches with the same (type, level),
+ *	unless CACHE_ID_GLOBAL is set.
  * @type: type of the cache - data, inst or unified
  * @level: represents the hierarchy in the multi-level cache
  * @coherency_line_size: size of each cache line usually representing
@@ -67,6 +68,7 @@ struct cacheinfo {
 #define CACHE_ALLOCATE_POLICY_MASK	\
 	(CACHE_READ_ALLOCATE | CACHE_WRITE_ALLOCATE)
 #define CACHE_ID		BIT(4)
+#define CACHE_ID_GLOBAL		BIT(5)
 	void *fw_token;
 	bool disable_sysfs;
 	void *priv;
