@@ -38,6 +38,7 @@
 
 #include <drm/drm_crtc.h>
 #include <drm/drm_device.h>
+#include <drm/drm_of.h>
 #include <drm/drm_panel.h>
 #include <linux/acpi.h>
 #include <linux/backlight.h>
@@ -672,7 +673,7 @@ static int cix_edp_panel_probe(struct device *dev, const struct panel_desc *desc
 	if (has_acpi_companion(dev)) {
 		err = acpi_drm_get_panel_orientation(dev, &panel->orientation);
 	} else {
-		err = of_drm_get_panel_orientation(dev->of_node, &panel->orientation);
+		err = drm_of_get_panel_orientation(dev->of_node, &panel->orientation);
 	}
 	
 	if (err) {
