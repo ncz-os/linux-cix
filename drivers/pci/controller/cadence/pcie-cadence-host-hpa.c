@@ -313,6 +313,38 @@ int cdns_pcie_hpa_host_link_setup(struct cdns_pcie_rc *rc)
 }
 EXPORT_SYMBOL_GPL(cdns_pcie_hpa_host_link_setup);
 
+int cdns_pcie_hpa_host_restore(struct cdns_pcie_rc *rc)
+{
+	struct device *dev = rc->pcie.dev;
+	struct cdns_pcie *pcie;
+	int ret = 0;
+
+	pcie = &rc->pcie;
+	if (rc->quirk_detect_quiet_flag)
+		cdns_pcie_hpa_detect_quiet_min_delay_set(&rc->pcie);
+
+	cdns_pcie_hpa_host_enable_ptm_response(pcie);
+
+	ret = cdns_pcie_start_link(pcie);
+	if (ret) {
+		dev_err(dev, "Failed to start link\n");
+		return ret;
+	}
+
+	ret = cdns_pcie_host_start_link(rc, cdns_pcie_hpa_link_up);
+	if (ret)
+		dev_dbg(dev, "PCIe link never came up\n");
+
+	ret = cdns_pcie_hpa_host_init(rc);
+	if (ret)
+		return ret;
+
+	dev_info(dev, "%s end\n", __func__);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(cdns_pcie_hpa_host_restore);
+
 void cdns_pcie_hpa_host_disable(struct cdns_pcie_rc *rc)
 {
 	struct pci_host_bridge *bridge;
