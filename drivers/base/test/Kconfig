@@ -18,3 +18,13 @@ config DRIVER_PE_KUNIT_TEST
 	tristate "KUnit Tests for property entry API" if !KUNIT_ALL_TESTS
 	depends on KUNIT
 	default KUNIT_ALL_TESTS
+
+config CACHEINFO_KUNIT_TEST
+	bool "KUnit tests for cacheinfo sharing" if !KUNIT_ALL_TESTS
+	depends on KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  Test cacheinfo's physical-cache identity rules, including firmware
+	  cache IDs that are globally unique across the relative cache levels
+	  reported by heterogeneous CPUs.
+	  If unsure, say N.
