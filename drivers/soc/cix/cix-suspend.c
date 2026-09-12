@@ -11,7 +11,9 @@
 #include <linux/errno.h>
 #include <linux/device.h>
 #include <linux/soc/cix/cix_suspend.h>
+#if IS_ENABLED(CONFIG_HISYSEVENT)
 #include <dfx/hiview_hisysevent.h>
+#endif
 
 static struct suspend_info suspend_warn;
 static spinlock_t suspend_warn_lock;
@@ -64,14 +66,17 @@ EXPORT_SYMBOL_GPL(suspend_warning_clear);
 
 bool suspend_warning_check(void)
 {
+#if IS_ENABLED(CONFIG_HISYSEVENT)
 	struct hiview_hisysevent *event = NULL;
 	int ret = 0;
+#endif
 	bool was_set = false;
 
 	spin_lock_irqsave(&suspend_warn_lock, suspend_warn_flags);
 	if (suspend_warn.is_set) {
 		was_set = true;
 
+#if IS_ENABLED(CONFIG_HISYSEVENT)
 		if(!IS_ERR_OR_NULL(suspend_warn.name)) {
 			event = hisysevent_create("KERNEL_VENDOR", "SUSPEND_ERROR", FAULT);
 			if (event == NULL) {
@@ -84,6 +89,7 @@ bool suspend_warning_check(void)
 				pr_err("report hievent failed: error_name = %s \n", suspend_warn.name);
 			hisysevent_destroy(&event);
 		}
+#endif
 
 	}
 	spin_unlock_irqrestore(&suspend_warn_lock, suspend_warn_flags);
