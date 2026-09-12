@@ -14,6 +14,14 @@
 #include "pcie-cadence-lga-regs.h"
 #include "pcie-cadence-hpa-regs.h"
 
+/*
+ * Local Management Registers
+ */
+#define CDNS_PCIE_IP_REG_BANK_BASE		0x1000
+#define CDNS_PCIE_IP_CFG_CTRL_REG_BANK_BASE 	0x4c00
+#define CDNS_PCIE_IP_AXI_SLAVE_BASE		0x9000
+#define CDNS_PCIE_IP_AXI_MASTER_COMMON_BASE	0xb000
+
 #define CDNS_PCIE_LGA_LTSSM_STATUS_MASK	GENMASK(29, 24)
 #define CDNS_PCIE_HPA_LTSSM_STATUS_MASK	GENMASK(27, 20)
 
