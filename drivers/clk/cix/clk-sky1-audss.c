@@ -10,6 +10,7 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
+#include <linux/mfd/syscon.h>
 #include <linux/regmap.h>
 #include <linux/reset.h>
 
@@ -517,12 +518,6 @@ struct sky1_audss_clks_devtype_data {
 	size_t clk_cfg_size;
 };
 
-static const struct regmap_config sky1_audss_regmap_config = {
-	.reg_bits = 32,
-	.val_bits = 32,
-	.reg_stride = 4,
-};
-
 struct sky1_audss_clks_priv {
 	struct device *dev;
 	struct regmap *regmap_cru;
@@ -979,15 +974,11 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 	struct sky1_audss_clks_priv *priv;
 	struct device *dev = &pdev->dev;
 	struct clk_hw **clk_table;
-	void __iomem *base;
 	int i, ret;
 
-	dev_err(dev, "NCZ-DEBUG: sky1_audss_clk_probe ENTERED");
 	devtype_data = device_get_match_data(dev);
-	if (!devtype_data) {
-		dev_err(dev, "NCZ-DEBUG: device_get_match_data returned NULL");
+	if (!devtype_data)
 		return -ENODEV;
-	}
 
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
@@ -1004,11 +995,32 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 	priv->clk_data->num = SKY1_AUDSS_NUM_CLKS;
 	clk_table = priv->clk_data->hws;
 
-	base = devm_platform_ioremap_resource(pdev, 0);
-	if (IS_ERR(base))
-		return PTR_ERR(base);
+	/*
+	 * CIXH6061 (this audss clock-domain device) carries no _CRS MMIO
+	 * resource of its own -- confirmed on real hardware (O6N): the
+	 * device has no /sys/.../resource file at all, while its parent
+	 * CIXH6060 owns the real 64KB register block (07110000-0711ffff
+	 * in /proc/iomem). This is the deliberate ACPI topology: one
+	 * physical CRU register block on the parent syscon device, shared
+	 * by logical children (CIXH6061 = audss clocks, CIXH6062 = audss
+	 * reset). devm_platform_ioremap_resource() on this device always
+	 * fails with -EINVAL ("invalid resource (null)") -- matches the
+	 * 7.2.5 reference driver's own resource-acquisition method exactly
+	 * (of_get_parent + syscon_node_to_regmap for DT,
+	 * device_syscon_regmap_lookup_by_property(dev, "audss_cru") for
+	 * the ACPI _DSD-referenced lookup).
+	 */
+	if (dev->of_node) {
+		struct device_node *parent_np = of_get_parent(dev->of_node);
 
-	priv->regmap_cru = devm_regmap_init_mmio(dev, base, &sky1_audss_regmap_config);
+		priv->regmap_cru = syscon_node_to_regmap(parent_np);
+		of_node_put(parent_np);
+	} else {
+		priv->regmap_cru = ERR_PTR(-ENODEV);
+	}
+
+	if (IS_ERR(priv->regmap_cru))
+		priv->regmap_cru = device_syscon_regmap_lookup_by_property(dev, "audss_cru");
 	if (IS_ERR(priv->regmap_cru))
 		return dev_err_probe(dev, PTR_ERR(priv->regmap_cru),
 				     "failed to initialize regmap\n");

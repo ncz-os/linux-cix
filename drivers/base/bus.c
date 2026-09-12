@@ -614,9 +614,6 @@ void bus_probe_device(struct device *dev)
 	struct subsys_private *sp = bus_to_subsys(dev->bus);
 	struct subsys_interface *sif;
 
-	if (!strcmp(dev_name(dev), "CIXH6061:00"))
-		dev_err(dev, "NCZ-DEBUG: bus_probe_device ENTERED sp=%p autoprobe=%d", sp, sp ? sp->drivers_autoprobe : -1);
-
 	if (!sp)
 		return;
 
