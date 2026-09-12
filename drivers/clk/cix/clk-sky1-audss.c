@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright 2026 Cix Technology Group Co., Ltd.
 
+#include <linux/acpi.h>
 #include <linux/auxiliary_bus.h>
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
@@ -13,6 +14,7 @@
 #include <linux/reset.h>
 
 #include <dt-bindings/clock/cix,sky1-audss-cru.h>
+#include "acpi_clk.h"
 
 #define INFO_HIFI0				0x00
 #define INFO_CLK_GATE				0x10
@@ -959,6 +961,17 @@ static void sky1_audss_clk_rpm_cleanup(void *data)
 	pm_runtime_force_suspend(data);
 }
 
+static struct clk_hw *acpi_audss_get_clk_hw(struct device *dev, int clk_id)
+{
+	struct sky1_audss_clks_priv *priv = dev_get_drvdata(dev);
+
+	if (!priv || !priv->clk_data || clk_id < 0 ||
+	    clk_id >= priv->clk_data->num)
+		return NULL;
+
+	return priv->clk_data->hws[clk_id];
+}
+
 /* register sky1 audio subsystem clocks */
 static int sky1_audss_clk_probe(struct platform_device *pdev)
 {
@@ -1098,7 +1111,12 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 		}
 	}
 
-	ret = devm_of_clk_add_hw_provider(dev, of_clk_hw_onecell_get, priv->clk_data);
+	if (ACPI_COMPANION(dev))
+		ret = cix_acpi_parse_clkt(dev, "CLKA", acpi_audss_get_clk_hw);
+	else
+		ret = devm_of_clk_add_hw_provider(dev,
+						  of_clk_hw_onecell_get,
+						  priv->clk_data);
 	if (ret) {
 		dev_err(dev, "failed to add clock provider: %d\n", ret);
 		goto fail_pm;
