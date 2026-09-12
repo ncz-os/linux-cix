@@ -1028,7 +1028,18 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 	priv->dev = dev;
 	priv->devtype_data = devtype_data;
 
-	priv->rst_noc = devm_reset_control_get_exclusive(dev, NULL);
+	/*
+	 * Optional + named "noc" reset, matching the 7.2.5 reference driver
+	 * exactly (devm_reset_control_get_optional_exclusive(dev, "noc")).
+	 * Confirmed on real hardware (O6N): the unnamed/required lookup
+	 * (devm_reset_control_get_exclusive(dev, NULL)) fails with -ENOENT
+	 * for CIXH6061 on ACPI -- this reset is not exposed the way that
+	 * lookup expects. The optional variant returns a real NULL (not an
+	 * error) when genuinely absent, and reset_control_assert()/
+	 * reset_control_deassert() are NULL-safe by design for exactly this
+	 * pattern, so no extra guards are needed at the call sites below.
+	 */
+	priv->rst_noc = devm_reset_control_get_optional_exclusive(dev, "noc");
 	if (IS_ERR(priv->rst_noc))
 		return dev_err_probe(dev, PTR_ERR(priv->rst_noc),
 				     "failed to get audss noc reset");
