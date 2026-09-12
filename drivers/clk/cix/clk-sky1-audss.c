@@ -892,11 +892,25 @@ static int sky1_audss_clks_get(struct sky1_audss_clks_priv *priv)
 	const struct sky1_audss_clks_devtype_data *devtype_data = priv->devtype_data;
 	int i;
 
+	/*
+	 * NCZ CIX Sky1 boot fix (patch 9014/0091 forward-port, carried into
+	 * the 7.2.5 reference driver but missed by the 7.3-rc2 forward-
+	 * evolved refactor): don't defer if a parent clock is not yet
+	 * available. Under ACPI boot the clk-sky1-acpi (acpi_clk.c) clkdev
+	 * entries are not always visible to this probe at the right time,
+	 * causing indefinite -EPROBE_DEFER (confirmed on real hardware,
+	 * O6N: "failed to get clock x8k", error -ENOENT). Since audss-clk
+	 * is a supplier for other devices, that stalls the whole chain.
+	 * Warn but continue with NULL; enable/disable/set_rate all skip
+	 * NULL/ERR entries already (matches 7.2.5's exact behavior).
+	 */
 	for (i = 0; i < devtype_data->clk_num; i++) {
 		priv->clks[i] = devm_clk_get(priv->dev, devtype_data->clk_names[i]);
-		if (IS_ERR(priv->clks[i]))
-			return dev_err_probe(priv->dev, PTR_ERR(priv->clks[i]),
-					     "failed to get clock %s", devtype_data->clk_names[i]);
+		if (IS_ERR(priv->clks[i])) {
+			dev_warn(priv->dev, "clock %s not ready (%ld), continuing without it\n",
+				 devtype_data->clk_names[i], PTR_ERR(priv->clks[i]));
+			priv->clks[i] = NULL;
+		}
 	}
 
 	return 0;
