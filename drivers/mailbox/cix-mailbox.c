@@ -632,11 +632,18 @@ static const struct of_device_id cix_mbox_dt_ids[] = {
 };
 MODULE_DEVICE_TABLE(of, cix_mbox_dt_ids);
 
+static const struct acpi_device_id cix_mbox_acpi_match[] = {
+	{ "CIXHA001", 0 }, /* sky1 mailbox */
+	{ },
+};
+MODULE_DEVICE_TABLE(acpi, cix_mbox_acpi_match);
+
 static struct platform_driver cix_mbox_driver = {
 	.probe = cix_mbox_probe,
 	.driver = {
 		.name = "cix_mbox",
 		.of_match_table = cix_mbox_dt_ids,
+		.acpi_match_table = ACPI_PTR(cix_mbox_acpi_match),
 	},
 };
 
