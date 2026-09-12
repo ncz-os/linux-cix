@@ -994,8 +994,6 @@ static int __device_attach_driver(struct device_driver *drv, void *_data)
 	int ret;
 
 	ret = driver_match_device(drv, dev);
-	if (!strcmp(dev_name(dev), "CIXH6061:00"))
-		dev_err(dev, "NCZ-DEBUG: __device_attach_driver drv=%s match_ret=%d", drv->name, ret);
 	if (ret == 0) {
 		/* no match */
 		return 0;
@@ -1073,11 +1071,7 @@ static int __device_attach(struct device *dev, bool allow_async)
 	bool async = false;
 
 	device_lock(dev);
-	if (!strcmp(dev_name(dev), "CIXH6061:00"))
-		dev_err(dev, "NCZ-DEBUG: __device_attach ENTERED dead=%d has_driver=%d", dev->p->dead, dev->driver != NULL);
 	if (dev->p->dead) {
-		if (!strcmp(dev_name(dev), "CIXH6061:00"))
-			dev_err(dev, "NCZ-DEBUG: __device_attach EARLY RETURN dead=1");
 		goto out_unlock;
 	} else if (dev->driver) {
 		if (device_is_bound(dev)) {
