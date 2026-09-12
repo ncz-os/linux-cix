@@ -7,10 +7,13 @@
 
 #include <dt-bindings/reset/cix,sky1-audss-cru.h>
 
-#include <linux/auxiliary_bus.h>
+#include <linux/acpi.h>
 #include <linux/delay.h>
 #include <linux/device.h>
+#include <linux/mfd/syscon.h>
 #include <linux/module.h>
+#include <linux/of.h>
+#include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/reset-controller.h>
 
@@ -60,6 +63,9 @@ static int sky1_audss_reset_set(struct reset_controller_dev *rcdev,
 	const struct sky1_audss_reset_map *signal = &priv->map[id];
 	int ret;
 
+	if (!priv->regmap)
+		return -ENODEV;
+
 	ret = regmap_assign_bits(priv->regmap, signal->offset,
 				 signal->mask, !assert);
 	if (ret)
@@ -86,20 +92,48 @@ static const struct reset_control_ops sky1_audss_reset_ops = {
 	.deassert = sky1_audss_reset_deassert,
 };
 
-static int sky1_audss_reset_probe(struct auxiliary_device *adev,
-				  const struct auxiliary_device_id *id)
+/*
+ * 16th forward-port fix. CIXH6062 (the audss reset domain, sibling of
+ * CIXH6061 under parent CIXH6060) is a REAL ACPI device on this hardware
+ * -- confirmed via /sys/devices/platform/CIXH6060:00/CIXH6062:00 -- not
+ * something created dynamically via auxiliary_bus. The 7.3-rc2 forward-
+ * evolved refactor of this driver assumed an auxiliary-bus-only design
+ * (matched only by name "clk_sky1_audss.reset", a child device the
+ * clock driver would spawn itself), which can never bind to CIXH6062
+ * because nothing on this ACPI topology ever creates that aux device.
+ * The 7.2.5 reference driver binds CIXH6062 directly as a standalone
+ * platform_driver via of_match_table/acpi_match_table, getting its own
+ * regmap via the same syscon lookup pattern as clk-sky1-audss.c. Ported
+ * that binding mechanism here, keeping this driver's more granular
+ * 16-entry reset map (7.2.5 uses a single generic bit-shift instead).
+ */
+static int sky1_audss_reset_probe(struct platform_device *pdev)
 {
+	struct device *dev = &pdev->dev;
 	struct sky1_audss_reset *priv;
-	struct device *dev = &adev->dev;
+	struct regmap *regmap;
+
+	if (dev->of_node) {
+		struct device_node *parent_np = of_get_parent(dev->of_node);
+
+		regmap = syscon_node_to_regmap(parent_np);
+		of_node_put(parent_np);
+	} else {
+		regmap = ERR_PTR(-ENODEV);
+	}
+
+	if (IS_ERR(regmap))
+		regmap = device_syscon_regmap_lookup_by_property(dev, "audss_cru");
+
+	if (IS_ERR(regmap))
+		return dev_err_probe(dev, PTR_ERR(regmap),
+				     "failed to get parent regmap\n");
 
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
 		return -ENOMEM;
 
-	priv->regmap = dev_get_regmap(dev->parent, NULL);
-	if (!priv->regmap)
-		return dev_err_probe(dev, -ENODEV, "failed to get parent regmap\n");
-
+	priv->regmap = regmap;
 	priv->map = sky1_audss_reset_map;
 	priv->rcdev.owner = THIS_MODULE;
 	priv->rcdev.nr_resets = ARRAY_SIZE(sky1_audss_reset_map);
@@ -110,17 +144,27 @@ static int sky1_audss_reset_probe(struct auxiliary_device *adev,
 	return devm_reset_controller_register(dev, &priv->rcdev);
 }
 
-static const struct auxiliary_device_id sky1_audss_reset_ids[] = {
-	{ .name = "clk_sky1_audss.reset" },
+static const struct of_device_id sky1_audss_reset_of_match[] = {
+	{ .compatible = "cix,sky1-audss-reset" },
+	{ /* sentinel */ }
+};
+MODULE_DEVICE_TABLE(of, sky1_audss_reset_of_match);
+
+static const struct acpi_device_id sky1_audss_reset_acpi_match[] = {
+	{ "CIXH6062", 0 },
 	{ }
 };
-MODULE_DEVICE_TABLE(auxiliary, sky1_audss_reset_ids);
+MODULE_DEVICE_TABLE(acpi, sky1_audss_reset_acpi_match);
 
-static struct auxiliary_driver sky1_audss_reset_driver = {
+static struct platform_driver sky1_audss_reset_driver = {
 	.probe = sky1_audss_reset_probe,
-	.id_table = sky1_audss_reset_ids,
+	.driver = {
+		.name = "sky1-audss-reset",
+		.of_match_table = sky1_audss_reset_of_match,
+		.acpi_match_table = ACPI_PTR(sky1_audss_reset_acpi_match),
+	},
 };
-module_auxiliary_driver(sky1_audss_reset_driver);
+module_platform_driver(sky1_audss_reset_driver);
 
 MODULE_AUTHOR("Joakim Zhang <joakim.zhang@cixtech.com>");
 MODULE_DESCRIPTION("Cix Sky1 Audio Subsystem reset driver");
