@@ -2524,8 +2524,6 @@ static int sky1_pcie_suspend_noirq(struct device *dev)
 	return ret;
 }
 
-extern int cdns_pcie_host_restore(struct cdns_pcie_rc *rc);
-
 static int sky1_pcie_power_check(struct device *dev)
 {
 	acpi_handle handle, pwhandle;
@@ -2577,9 +2575,9 @@ static int sky1_pcie_resume_noirq(struct device *dev)
 	sky1_pcie_init(pcie);
 	sky1_pcie_set_linksta_slc(pcie);
 
-	ret = cdns_pcie_host_restore(rc);
+	ret = cdns_pcie_hpa_host_restore(rc);
 	if (ret < 0)
-		dev_err(dev, "cdns_pcie_host_restore err, err=%d\n", ret);
+		dev_err(dev, "cdns_pcie_hpa_host_restore err, err=%d\n", ret);
 
 	sky1_pcie_enable_irq(pcie, true);
 	dev_info(dev, "%s end\n", __func__);
