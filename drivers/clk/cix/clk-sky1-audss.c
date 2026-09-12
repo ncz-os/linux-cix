@@ -1208,12 +1208,19 @@ static const struct of_device_id sky1_audss_clk_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, sky1_audss_clk_of_match);
 
+static const struct acpi_device_id sky1_audss_clk_acpi_match[] = {
+	{ "CIXH6061", (kernel_ulong_t)&sky1_devtype_data },
+	{ },
+};
+MODULE_DEVICE_TABLE(acpi, sky1_audss_clk_acpi_match);
+
 static struct platform_driver sky1_audss_clk_driver = {
 	.probe = sky1_audss_clk_probe,
 	.driver = {
 		.name = "sky1-audss-clk",
 		.suppress_bind_attrs = true,
 		.of_match_table = sky1_audss_clk_of_match,
+		.acpi_match_table = ACPI_PTR(sky1_audss_clk_acpi_match),
 		.pm = pm_ptr(&sky1_audss_clk_pm_ops),
 	},
 };
