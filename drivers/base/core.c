@@ -3773,8 +3773,8 @@ int device_add(struct device *dev)
 	dev_set_ready_to_probe(dev);
 	device_unlock(dev);
 
-	if (!strcmp(dev_name(dev), "CIXH6061:00"))
-		dev_err(dev, "NCZ-DEBUG: device_add reached bus_probe_device call site");
+	if (dev_name(dev) && strstr(dev_name(dev), "606"))
+		dev_err(dev, "NCZ-DEBUG: device_add reached bus_probe_device call site, name=%s", dev_name(dev));
 
 	bus_probe_device(dev);
 
