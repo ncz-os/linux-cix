@@ -3640,13 +3640,8 @@ static int device_private_init(struct device *dev)
  * *not* succeeded, use *only* put_device() to drop the reference
  * count.
  */
-static atomic_t ncz_debug_device_add_count = ATOMIC_INIT(0);
-
 int device_add(struct device *dev)
 {
-	if (atomic_inc_return(&ncz_debug_device_add_count) <= 3)
-		dev_err(dev, "NCZ-DEBUG: device_add UNCONDITIONAL call #%d name=%s",
-			atomic_read(&ncz_debug_device_add_count), dev_name(dev));
 	struct subsys_private *sp;
 	struct device *parent;
 	struct kobject *kobj;
@@ -3777,9 +3772,6 @@ int device_add(struct device *dev)
 	device_lock(dev);
 	dev_set_ready_to_probe(dev);
 	device_unlock(dev);
-
-	if (dev_name(dev) && strstr(dev_name(dev), "606"))
-		dev_err(dev, "NCZ-DEBUG: device_add reached bus_probe_device call site, name=%s", dev_name(dev));
 
 	bus_probe_device(dev);
 
