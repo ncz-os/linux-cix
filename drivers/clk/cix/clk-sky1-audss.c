@@ -982,9 +982,12 @@ static int sky1_audss_clk_probe(struct platform_device *pdev)
 	void __iomem *base;
 	int i, ret;
 
+	dev_err(dev, "NCZ-DEBUG: sky1_audss_clk_probe ENTERED");
 	devtype_data = device_get_match_data(dev);
-	if (!devtype_data)
+	if (!devtype_data) {
+		dev_err(dev, "NCZ-DEBUG: device_get_match_data returned NULL");
 		return -ENODEV;
+	}
 
 	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
