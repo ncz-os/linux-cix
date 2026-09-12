@@ -41,7 +41,7 @@ void suspend_warning_set(const char *name, suspend_warn_type_t type)
 	if (!suspend_warn.is_set) {
 		suspend_warn.type = type;
 		suspend_warn.is_set = true;
-		strncpy(suspend_warn.name, name, SUSPEND_MAX_MODULE_NAME_LEN - 1);
+		strscpy(suspend_warn.name, name, SUSPEND_MAX_MODULE_NAME_LEN);
 	} else {
 		pr_warn("Suspend warn already set: type=%d, new type=%d\n", suspend_warn.type, type);
 	}
