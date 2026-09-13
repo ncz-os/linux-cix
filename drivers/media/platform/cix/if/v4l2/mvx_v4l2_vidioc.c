@@ -1439,16 +1439,17 @@ int mvx_v4l2_vidioc_s_parm(struct file *file,
         struct v4l2_captureparm *cparm = &a->parm.capture;
         /* Just do sanity check but not update fps as VPU doesn't support frame rate conversion */
         frameperiod = &a->parm.capture.timeperframe;
-        if (frameperiod->numerator * session->fps_n != frameperiod->denominator * session->fps_d ||
-            frameperiod->numerator == 0 || frameperiod->denominator == 0) {
-            MVX_SESSION_WARN(&session,
-                "v4l2: Invalid frame period from client (%d/%d). Return %d/%d",
-                frameperiod->numerator, frameperiod->denominator, session->fps_n, session->fps_d);
-            frameperiod->numerator = session->fps_d;
-            frameperiod->denominator = session->fps_n;
-        }
-        if (vsession->ext->is_encoder)
+        if (vsession->ext->is_encoder) {
+            if (frameperiod->numerator * session->fps_n != frameperiod->denominator * session->fps_d ||
+                frameperiod->numerator == 0 || frameperiod->denominator == 0) {
+                MVX_SESSION_WARN(&session,
+                    "v4l2: Invalid frame period from client (%d/%d). Return %d/%d",
+                    frameperiod->numerator, frameperiod->denominator, session->fps_d, session->fps_n);
+                frameperiod->numerator = session->fps_d;
+                frameperiod->denominator = session->fps_n;
+            }
             cparm->capability = V4L2_CAP_TIMEPERFRAME;
+        }
     } else if (a->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE ||
         a->type == V4L2_BUF_TYPE_VIDEO_OUTPUT) {
         struct v4l2_outputparm *oparm = &a->parm.output;
