@@ -431,7 +431,7 @@ static void update_cache_properties(struct cacheinfo *this_leaf,
 	found_cache_v1 = upgrade_pptt_cache(found_cache);
 	if (found_cache_v1) {
 		this_leaf->id = found_cache_v1->cache_id;
-		this_leaf->attributes |= CACHE_ID;
+		this_leaf->attributes |= CACHE_ID | CACHE_ID_GLOBAL;
 	}
 }
 
@@ -936,15 +936,14 @@ void acpi_pptt_get_cpus_from_container(u32 acpi_cpu_id, cpumask_t *cpus)
  * find_acpi_cache_level_from_id() - Get the level of the specified cache
  * @cache_id: The id field of the cache
  *
- * Determine the level relative to any CPU for the cache identified by
- * cache_id. This allows the property to be found even if the CPUs are offline.
+ * Determine the highest level relative to any CPU for the cache identified by
+ * cache_id. This allows the property to be found even if the CPUs are offline
+ * and gives a deterministic class to a physical cache reached at different
+ * relative levels by heterogeneous CPUs.
  *
  * The returned level can be used to group caches that are peers.
  *
  * The PPTT table must be rev 3 or later.
- *
- * If one CPU's L2 is shared with another CPU as L3, this function will return
- * an unpredictable value.
  *
  * Return: -ENOENT if the PPTT doesn't exist, the revision isn't supported or
  * the cache cannot be found.
@@ -953,6 +952,7 @@ void acpi_pptt_get_cpus_from_container(u32 acpi_cpu_id, cpumask_t *cpus)
 int find_acpi_cache_level_from_id(u32 cache_id)
 {
 	int cpu;
+	int cache_level = -ENOENT;
 	struct acpi_table_header *table;
 
 	table = acpi_get_pptt();
@@ -991,14 +991,15 @@ int find_acpi_cache_level_from_id(u32 cache_id)
 				empty = false;
 
 				cache_v1 = upgrade_pptt_cache(cache);
-				if (cache_v1 && cache_v1->cache_id == cache_id)
-					return level;
+				if (cache_v1 && cache_v1->cache_id == cache_id &&
+				    level > cache_level)
+					cache_level = level;
 			}
 			level++;
 		} while (!empty);
 	}
 
-	return -ENOENT;
+	return cache_level;
 }
 
 /**
