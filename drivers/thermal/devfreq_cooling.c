@@ -119,6 +119,32 @@ static int devfreq_cooling_set_cur_state(struct thermal_cooling_device *cdev,
 }
 
 /**
+ * devfreq_cooling_get_device - get the device behind a devfreq cooling device
+ * @cdev: Cooling device to inspect
+ *
+ * Return: The underlying device for a devfreq cooling device, or NULL if
+ * @cdev was registered by another cooling driver.
+ */
+struct device *
+devfreq_cooling_get_device(struct thermal_cooling_device *cdev)
+{
+	struct devfreq_cooling_device *dfc;
+
+	if (!cdev || !cdev->ops ||
+	    cdev->ops->get_max_state != devfreq_cooling_get_max_state ||
+	    cdev->ops->get_cur_state != devfreq_cooling_get_cur_state ||
+	    cdev->ops->set_cur_state != devfreq_cooling_set_cur_state)
+		return NULL;
+
+	dfc = cdev->devdata;
+	if (!dfc || !dfc->devfreq)
+		return NULL;
+
+	return dfc->devfreq->dev.parent;
+}
+EXPORT_SYMBOL_GPL(devfreq_cooling_get_device);
+
+/**
  * get_perf_idx() - get the performance index corresponding to a frequency
  * @em_pd:	Pointer to device's Energy Model
  * @freq:	frequency in kHz
@@ -459,7 +485,10 @@ of_devfreq_cooling_register_power(struct device_node *np, struct devfreq *df,
 	if (!name)
 		goto remove_qos_req;
 
-	cdev = thermal_of_cooling_device_register(np, 0, name, dfc, ops);
+	if (np)
+		cdev = thermal_of_cooling_device_register(np, 0, name, dfc, ops);
+	else
+		cdev = thermal_cooling_device_register(name, dfc, ops);
 	kfree(name);
 
 	if (IS_ERR(cdev)) {
