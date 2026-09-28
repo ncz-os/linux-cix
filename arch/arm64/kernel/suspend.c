@@ -18,6 +18,7 @@
 #include <asm/mmu_context.h>
 #include <asm/smp_plat.h>
 #include <asm/suspend.h>
+#include <linux/ncz-resume-beacon.h>
 
 /*
  * This is allocated by cpu_suspend_init(), and used to store a pointer to
@@ -41,8 +42,14 @@ void __init cpu_suspend_set_dbg_restorer(int (*hw_bp_restore)(unsigned int))
 	hw_breakpoint_restore = hw_bp_restore;
 }
 
+/*
+ * NCZ resume beacon R3: earliest point CPU0 executes on the resume path
+ * proper.  Reached via cpu_resume() returning into cpu_suspend()'s
+ * trampoline, after the firmware has handed control back to EL1.
+ */
 void notrace __cpu_suspend_exit(void)
 {
+	ncz_beacon("R3-cpu_suspend_exit");
 	unsigned int cpu = smp_processor_id();
 
 	mte_suspend_exit();
