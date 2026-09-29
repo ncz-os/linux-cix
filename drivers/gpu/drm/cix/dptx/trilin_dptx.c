@@ -36,6 +36,7 @@
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/module.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/phy/phy.h>
@@ -3520,13 +3521,70 @@ static void trilin_dp_gop_set(void)
 			dp_gop_bit << DP_GOP_SHIFT, 0, 0, 0, 0, 0, &res);
 }
 
+static void trilin_dp_edp_panel_put(void *data)
+{
+	drm_panel_put(data);
+}
+
+/*
+ * Resolve the optional "edp-panel" firmware reference.
+ *
+ * v7.3 exports only the device-tree lookup, of_drm_find_panel(), and since
+ * b71a623598d3 it returns a counted reference that the caller must drop with
+ * drm_panel_put(). The fwnode-keyed lookup, find_panel_by_fwnode(), is
+ * static in drm_panel.c. The NCZ-only fwnode_drm_find_panel() export that
+ * used to wrap it (the 7.2 patch 0058) is gone, so there is no exported
+ * lookup for a panel that is described only by ACPI.
+ *
+ * Contract:
+ *  - no "edp-panel" reference: return NULL and probe as standard DP
+ *    (the 0008 code left edp_panel uninitialized on this path).
+ *  - reference on a non-OF (ACPI) fwnode: warn, return NULL, and probe
+ *    as standard DP. No Sky1 ACPI panel provider is built
+ *    (CONFIG_DRM_CIX_EDP_PANEL is not set), so the old code could only
+ *    defer this port forever.
+ *  - OF reference: of_drm_find_panel(), which returns -EPROBE_DEFER or
+ *    -ENODEV unchanged. On success the panel reference is dropped by a
+ *    devm action on @dev, so it stays balanced even after
+ *    trilin_dp_edp_drop_panel() clears dp->edp_panel.
+ *  - the fwnode reference from fwnode_find_reference() is always put.
+ *    The 0008 code leaked it on every path.
+ */
+static struct drm_panel *trilin_dp_find_edp_panel(struct device *dev)
+{
+	struct fwnode_handle *fwnode;
+	struct drm_panel *panel;
+	int ret;
+
+	fwnode = fwnode_find_reference(dev_fwnode(dev), "edp-panel", 0);
+	if (IS_ERR_OR_NULL(fwnode))
+		return NULL;
+
+	if (!is_of_node(fwnode)) {
+		dev_warn(dev,
+			 "edp-panel reference on a non-OF firmware node is not supported; probing as standard DP\n");
+		fwnode_handle_put(fwnode);
+		return NULL;
+	}
+
+	panel = of_drm_find_panel(to_of_node(fwnode));
+	fwnode_handle_put(fwnode);
+	if (IS_ERR(panel))
+		return panel;
+
+	ret = devm_add_action_or_reset(dev, trilin_dp_edp_panel_put, panel);
+	if (ret)
+		return ERR_PTR(ret);
+
+	return panel;
+}
+
 int trilin_dp_probe(struct trilin_dpsub *dpsub, struct drm_device *drm)
 {
 	struct platform_device *pdev = to_platform_device(dpsub->dev);
 	struct trilin_dp *dp;
 	struct resource *res_dp, *res_phy, *res_rcsu = NULL;
 	struct device *dev;
-	struct fwnode_handle *fwnode_edp_panel;
 	struct drm_panel *edp_panel;
 	int ret;
 	const char *str_prop;
@@ -3534,16 +3592,13 @@ int trilin_dp_probe(struct trilin_dpsub *dpsub, struct drm_device *drm)
 	u32 psr_default_on = 1;
 
 	dev = &pdev->dev;
-	fwnode_edp_panel = fwnode_find_reference(dev->fwnode, "edp-panel", 0);
-	if (!IS_ERR_OR_NULL(fwnode_edp_panel)) {
-		edp_panel = fwnode_drm_find_panel(fwnode_edp_panel);
-		if (IS_ERR(edp_panel)) {
-			dev_err(dev, "%s, invalid drm_panel\n", __func__);
-			return PTR_ERR(edp_panel);
-		} else
-			dev_info(dev, "%s, edp-panel %s is found\n", __func__,
-				 dev_name(edp_panel->dev));
-	}
+	edp_panel = trilin_dp_find_edp_panel(dev);
+	if (IS_ERR(edp_panel))
+		return dev_err_probe(dev, PTR_ERR(edp_panel),
+				     "%s, invalid edp-panel\n", __func__);
+	if (edp_panel)
+		dev_info(dev, "%s, edp-panel %s is found\n", __func__,
+			 dev_name(edp_panel->dev));
 
 	dp = devm_kzalloc(dpsub->dev, sizeof(*dp), GFP_KERNEL);
 	if (!dp)
