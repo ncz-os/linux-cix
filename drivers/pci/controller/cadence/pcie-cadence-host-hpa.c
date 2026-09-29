@@ -249,6 +249,8 @@ static int cdns_pcie_hpa_create_region_for_ecam(struct cdns_pcie_rc *rc)
 		subbus = entry->res->end;
 	}
 	size = resource_size(cfg_res);
+	if (!size)
+		return -EINVAL;
 	sz = 1ULL << fls64(size - 1);
 	nbits = ilog2(sz);
 	if (nbits < 8)
@@ -325,8 +327,12 @@ static int cdns_pcie_hpa_host_init_address_translation(struct cdns_pcie_rc *rc)
 
 	if (!rc->ecam_supported)
 		cdns_pcie_hpa_create_region_for_cfg(rc);
-	else if (rc->sky1_bsp_ecam_region)
-		cdns_pcie_hpa_create_region_for_ecam(rc);
+	else if (rc->sky1_bsp_ecam_region) {
+		int err = cdns_pcie_hpa_create_region_for_ecam(rc);
+
+		if (err)
+			return err;
+	}
 
 	entry = resource_list_first_type(&bridge->windows, IORESOURCE_BUS);
 	if (entry)
