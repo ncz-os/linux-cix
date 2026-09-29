@@ -580,7 +580,7 @@ static void sky1_pcie_handle_rp_aer_irq(struct sky1_pcie *pcie)
 	reg32 = readl(reg_base + aer_offset + PCI_ERR_ROOT_COMMAND);
 	reg32 |= PCI_ERR_ROOT_CMD_COR_EN | PCI_ERR_ROOT_CMD_NONFATAL_EN |
 		 PCI_ERR_ROOT_CMD_FATAL_EN;
-	writel(reg32, reg_base + offset + PCI_ERR_ROOT_COMMAND);
+	writel(reg32, reg_base + aer_offset + PCI_ERR_ROOT_COMMAND);
 }
 
 static void sky1_pcie_handle_ep_aer_irq(struct sky1_pcie *pcie)
@@ -1253,131 +1253,74 @@ static void sky1_pcie_clk_release(void *data)
 	clk_put((struct clk *)data);
 }
 
-static int sky1_pcie_parse_clocks(struct sky1_pcie *pcie)
+/*
+ * Look up one controller clock (7.2 patch 0029, reworked for v7.3).
+ *
+ * Under ACPI the CLKT bridge (clk-sky1-acpi.c) registers clkdev entries keyed
+ * by acpi_dev_name() (e.g. "CIXH2020:02"), not by this synthetic platform
+ * device's name, so they are fetched with clk_get_sys() and released by a
+ * devm action. -ENOENT there means the bridge has not registered them yet:
+ * defer (or, for an optional clock, carry on without it).
+ *
+ * Never store an ERR_PTR: clk_prepare_enable() dereferences it. The r277
+ * code logged the error, kept the ERR_PTR and returned 0.
+ */
+static int sky1_pcie_get_clk(struct sky1_pcie *pcie, struct acpi_device *adev,
+			     const char *name, bool optional, struct clk **out)
 {
 	struct device *dev = pcie->dev;
-	struct clk *axi_clk, *apb_clk, *refclk;
-	int ret = 0;
+	struct clk *clk;
+	int ret;
 
+	*out = NULL;
 #if IS_ENABLED(CONFIG_ACPI)
-	/*
-	 * Sky1 ACPI registers synthetic platform devices as "sky1-pcie.N.auto"
-	 * (pci-sky1-acpi.c) while clk-sky1-acpi CLKT clkdev entries use
-	 * acpi_dev_name(), e.g. "CIXH2020:02". Resolve clocks via the bound
-	 * ACPI companion so dev_id matches clkdev_create().
-	 */
-	{
-		struct acpi_device *adev = ACPI_COMPANION(dev);
-
-		if (adev) {
-			const char *adev_id = acpi_dev_name(adev);
-
-			axi_clk = clk_get_sys(adev_id, "axi_clk");
-			if (IS_ERR(axi_clk)) {
-				ret = PTR_ERR(axi_clk);
-				dev_err(dev, "Failed to get axi_clk\n");
-			} else {
-				ret = devm_add_action_or_reset(dev, sky1_pcie_clk_release,
-							       axi_clk);
-				if (ret)
-					return ret;
+	if (adev) {
+		clk = clk_get_sys(acpi_dev_name(adev), name);
+		if (IS_ERR(clk)) {
+			ret = PTR_ERR(clk);
+			if (ret == -ENOENT) {
+				if (optional)
+					return 0;
+				ret = -EPROBE_DEFER;
 			}
-			pcie->pcie_axi_clk = axi_clk;
-
-			apb_clk = clk_get_sys(adev_id, "apb_clk");
-			if (IS_ERR(apb_clk)) {
-				ret = PTR_ERR(apb_clk);
-				dev_err(dev, "Failed to get apb_clk\n");
-			} else {
-				ret = devm_add_action_or_reset(dev, sky1_pcie_clk_release,
-							       apb_clk);
-				if (ret)
-					return ret;
-			}
-			pcie->pcie_apb_clk = apb_clk;
-
-			refclk = clk_get_sys(adev_id, "refclk_b");
-			if (IS_ERR(refclk)) {
-				if (PTR_ERR(refclk) == -ENOENT) {
-					refclk = NULL;
-				} else {
-					ret = PTR_ERR(refclk);
-					dev_err(dev, "failed to get refclk_b\n");
-				}
-			} else {
-				ret = devm_add_action_or_reset(dev, sky1_pcie_clk_release,
-							       refclk);
-				if (ret)
-					return ret;
-			}
-			pcie->pcie_refclk_b = refclk;
-
-			return 0;
+			return dev_err_probe(dev, ret, "failed to get %s\n", name);
 		}
+		ret = devm_add_action_or_reset(dev, sky1_pcie_clk_release, clk);
+		if (ret)
+			return ret;
+		*out = clk;
+		return 0;
 	}
 #endif
-
-	axi_clk = devm_clk_get(dev, "axi_clk");
-	if (IS_ERR(axi_clk)) {
-		ret = PTR_ERR(axi_clk);
-		dev_err(dev, "Failed to get axi_clk\n");
-	}
-	pcie->pcie_axi_clk = axi_clk;
-
-	apb_clk = devm_clk_get(dev, "apb_clk");
-	if (IS_ERR(apb_clk)) {
-		ret = PTR_ERR(apb_clk);
-		dev_err(dev, "Failed to get apb_clk\n");
-	}
-	pcie->pcie_apb_clk = apb_clk;
-
-#if IS_ENABLED(CONFIG_ACPI)
-	/*
-	 * Same clkdev dev_id as axi/apb: ACPI name, or pdata->adev when
-	 * companion fwnode is not set yet (see pci-sky1-acpi.c).
-	 */
-	{
-		struct sky1_pcie_acpi_pdata *apd = dev_get_platdata(dev);
-		struct acpi_device *ref_adev = ACPI_COMPANION(dev);
-
-		if (!ref_adev && apd)
-			ref_adev = apd->adev;
-
-		if (ref_adev) {
-			const char *ref_id = acpi_dev_name(ref_adev);
-
-			refclk = clk_get_sys(ref_id, "refclk_b");
-			if (IS_ERR(refclk)) {
-				if (PTR_ERR(refclk) == -ENOENT) {
-					refclk = NULL;
-				} else {
-					ret = PTR_ERR(refclk);
-					dev_err(dev, "failed to get refclk_b\n");
-				}
-			} else {
-				ret = devm_add_action_or_reset(dev, sky1_pcie_clk_release,
-							       refclk);
-				if (ret)
-					return ret;
-			}
-		} else {
-			refclk = devm_clk_get_optional(dev, "refclk_b");
-			if (IS_ERR(refclk)) {
-				ret = PTR_ERR(refclk);
-				dev_err(dev, "failed to get refclk_b\n");
-			}
-		}
-	}
-#else
-	refclk = devm_clk_get_optional(dev, "refclk_b");
-	if (IS_ERR(refclk)) {
-		ret = PTR_ERR(refclk);
-		dev_err(dev, "failed to get refclk_b\n");
-	}
-#endif
-	pcie->pcie_refclk_b = refclk;
-
+	clk = optional ? devm_clk_get_optional(dev, name) : devm_clk_get(dev, name);
+	if (IS_ERR(clk))
+		return dev_err_probe(dev, PTR_ERR(clk), "failed to get %s\n", name);
+	*out = clk;
 	return 0;
+}
+
+static int sky1_pcie_parse_clocks(struct sky1_pcie *pcie)
+{
+	struct acpi_device *adev = NULL;
+	int ret;
+
+#if IS_ENABLED(CONFIG_ACPI)
+	adev = ACPI_COMPANION(pcie->dev);
+	if (!adev) {
+		/* companion not bound yet: pci-sky1-acpi.c passes it as pdata */
+		struct sky1_pcie_acpi_pdata *apd = dev_get_platdata(pcie->dev);
+
+		if (apd)
+			adev = apd->adev;
+	}
+#endif
+	ret = sky1_pcie_get_clk(pcie, adev, "axi_clk", false, &pcie->pcie_axi_clk);
+	if (ret)
+		return ret;
+	ret = sky1_pcie_get_clk(pcie, adev, "apb_clk", false, &pcie->pcie_apb_clk);
+	if (ret)
+		return ret;
+	return sky1_pcie_get_clk(pcie, adev, "refclk_b", true, &pcie->pcie_refclk_b);
 }
 
 static int sky1_pcie_parse_plat(struct sky1_pcie *pcie)
@@ -2447,7 +2390,7 @@ static int sky1_pcie_probe(struct platform_device *pdev)
 
 	ret = sky1_pcie_parse_property(pdev, pcie);
 	if (ret < 0)
-		return -EINVAL;
+		return ret;
 
 	ret = sky1_pcie_en_ep_power(pcie, true);
 	if (ret < 0)
