@@ -10,6 +10,48 @@
 #include "pcie-cadence.h"
 #include "../../pci.h"
 
+/*
+ * NCZ Sky1 (7.2 patch 0027, re-ported to v7.3): BSP-style capability search.
+ *
+ * The CIX vendor driver (pci-sky1-cix.c) walks the Root Port capability list
+ * from a raw register window (pcie->reg_base + CDNS_PCIE_HPA_RP_BASE), not
+ * from a struct cdns_pcie. Mainline cdns_pcie_find_capability() takes the
+ * struct; the rc5 port called it with an __iomem window, which the compiler
+ * accepts (void * converts silently) and which then dereferences MMIO as a
+ * struct cdns_pcie in native mode.
+ */
+static int sky1_cdns_pcie_read_cfg_byte(void __iomem *reg_base, int where, u8 *val)
+{
+	*val = cdns_pcie_read_sz(reg_base + where, 0x1);
+	return PCIBIOS_SUCCESSFUL;
+}
+
+static int sky1_cdns_pcie_read_cfg_word(void __iomem *reg_base, int where, u16 *val)
+{
+	*val = cdns_pcie_read_sz(reg_base + where, 0x2);
+	return PCIBIOS_SUCCESSFUL;
+}
+
+static int sky1_cdns_pcie_read_cfg_dword(void __iomem *reg_base, int where, u32 *val)
+{
+	*val = cdns_pcie_read_sz(reg_base + where, 0x4);
+	return PCIBIOS_SUCCESSFUL;
+}
+
+u8 sky1_cdns_pcie_find_capability(void __iomem *reg_base, u8 cap)
+{
+	return PCI_FIND_NEXT_CAP(sky1_cdns_pcie_read_cfg, PCI_CAPABILITY_LIST,
+				 cap, NULL, reg_base);
+}
+EXPORT_SYMBOL_GPL(sky1_cdns_pcie_find_capability);
+
+u16 sky1_cdns_pcie_find_ext_capability(void __iomem *reg_base, u16 cap)
+{
+	return PCI_FIND_NEXT_EXT_CAP(sky1_cdns_pcie_read_cfg, 0, cap, NULL,
+				     reg_base);
+}
+EXPORT_SYMBOL_GPL(sky1_cdns_pcie_find_ext_capability);
+
 u8 cdns_pcie_find_capability(struct cdns_pcie *pcie, u8 cap)
 {
 	return PCI_FIND_NEXT_CAP(cdns_pcie_read_cfg, PCI_CAPABILITY_LIST,
