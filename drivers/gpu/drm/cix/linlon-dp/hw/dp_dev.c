@@ -595,7 +595,7 @@ static int dp_connect_iommu(struct linlondp_dev *mdev)
 	int i, ret;
 
 	if (!dp->integrates_tbu) {
-		DRM_WARN("Connect mmu without internal TBU!\n");
+		DRM_DEBUG_DRIVER("No internal TBU; skipping display MMU connect\n");
 		return 0;
 	}
 	linlondp_write32_mask(reg, BLK_CONTROL, 0x7, TBU_CONNECT_MODE);
@@ -625,7 +625,7 @@ static int dp_disconnect_iommu(struct linlondp_dev *mdev)
 	int ret;
 
 	if (!dp->integrates_tbu) {
-		DRM_WARN("Disconnect mmu without internal TBU!\n");
+		DRM_DEBUG_DRIVER("No internal TBU; skipping display MMU disconnect\n");
 		return 0;
 	}
 
