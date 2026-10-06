@@ -784,6 +784,29 @@ static int cdnsp_sky1_probe(struct platform_device *pdev)
 	 * inactive device with active children" warning this had silenced.
 	 */
 	device_set_wakeup_capable(dev, true);
+
+	/*
+	 * Under ACPI the CIXH2031 children are separate ACPI platform devices.
+	 * They are not created here. The firmware DLKL table links each one
+	 * to its wrapper with a managed device link, so a child probes only
+	 * after this probe returns. In that window the driver core idles the
+	 * wrapper and runtime-suspends it. Before late_initcall the CIX
+	 * early-boot runtime-PM gate skips the callbacks and also makes the
+	 * driver core's pm_runtime_get_sync(parent) a no-op, so the wrapper is
+	 * still RPM_SUSPENDED when the child calls pm_runtime_set_active().
+	 * Each child then logs "runtime PM trying to activate child device
+	 * CIXH2031:0N but parent (CIXH2030:0N) is not active".
+	 *
+	 * Hold a usage reference until every consumer of the wrapper has
+	 * bound. The driver core reports that through ->sync_state(), which
+	 * drops the reference. By then the children are active and keep the
+	 * wrapper active through the normal parent/child accounting
+	 * described above.
+	 */
+	if (ACPI_COMPANION(dev)) {
+		pm_runtime_get_noresume(dev);
+		data->rpm_hold = true;
+	}
 	pm_runtime_set_active(dev);
 	pm_runtime_enable(dev);
 
@@ -824,6 +847,10 @@ static int cdnsp_sky1_probe(struct platform_device *pdev)
 err_pm:
 	pm_runtime_disable(dev);
 	pm_runtime_set_suspended(dev);
+	if (data->rpm_hold) {
+		data->rpm_hold = false;
+		pm_runtime_put_noidle(dev);
+	}
 	kfree(cdns_sky1_pdata);
 	return ret;
 }
@@ -834,6 +861,10 @@ static void cdnsp_sky1_remove(struct platform_device *pdev)
 	struct cdnsp_sky1 *data = dev_get_drvdata(dev);
 
 	pm_runtime_get_sync(dev);
+	if (data->rpm_hold) {
+		data->rpm_hold = false;
+		pm_runtime_put_noidle(dev);
+	}
 	of_platform_depopulate(dev);
 	sky1_put_addr(data->xhci_base);
 	sky1_put_addr(data->device_base);
@@ -929,6 +960,20 @@ static void cdnsp_sky1_shutdown(struct platform_device *pdev)
 	}
 }
 
+/*
+ * All consumers (the ACPI CIXH2031 children) have bound: drop the usage
+ * reference taken in probe and let normal runtime-PM accounting take over.
+ */
+static void cdnsp_sky1_sync_state(struct device *dev)
+{
+	struct cdnsp_sky1 *data = dev_get_drvdata(dev);
+
+	if (data && data->rpm_hold) {
+		data->rpm_hold = false;
+		pm_runtime_put(dev);
+	}
+}
+
 static struct platform_driver cdnsp_sky1_driver = {
 	.probe		= cdnsp_sky1_probe,
 	.remove		= cdnsp_sky1_remove,
@@ -937,6 +982,7 @@ static struct platform_driver cdnsp_sky1_driver = {
 		.of_match_table	= cdns_sky1_of_match,
 		.acpi_match_table = ACPI_PTR(cdnsp_sky1_acpi_match),
 		.pm	= &cdnsp_sky1_pm_ops,
+		.sync_state = cdnsp_sky1_sync_state,
 	},
 	.shutdown = cdnsp_sky1_shutdown,
 };
