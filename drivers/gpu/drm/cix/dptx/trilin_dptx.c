@@ -2696,13 +2696,10 @@ static int trilin_dp_host_init_from_bootloader(struct trilin_dp *dp)
 	dp->state |= DPTX_STATE_INITIALIZED;
 
 	dev_info(dp->dev, "%s reports a plug event\n", __func__);
+	dp->gop_plug_notify = 1;
 
 	/* add force to detect to sync call detect. */
 	drm_helper_probe_detect(&dp->connector.base, NULL, false);
-	/* probe_detect updates dp->status; reset so hpd_event_work sees a change */
-	dp->status = connector_status_unknown;
-	schedule_delayed_work(&dp->hpd_event_work, msecs_to_jiffies(10));
-	schedule_delayed_work(&dp->hpd_irq_work, msecs_to_jiffies(10));
 	return rc;
 }
 
@@ -3013,9 +3010,7 @@ static irqreturn_t trilin_dp_irq_handler(int irq, void *data)
 	}
 
 	if (status & TRILIN_DPTX_INTERRUPT_HPD_IRQ)
-		//schedule_delayed_work(&dp->hpd_irq_work, 0);
-		queue_delayed_work(system_freezable_wq, &dp->hpd_irq_work,
-				      0);
+		queue_delayed_work(system_freezable_wq, &dp->hpd_irq_work, 0);
 
 	return IRQ_HANDLED;
 }
@@ -3486,8 +3481,19 @@ int trilin_dp_hdcp_init(struct trilin_dpsub *dpsub)
 	hdcp->timer_in_use = false;
 	hdcp->opened = false;
 	ret = cix_hdcp_init(hdcp);
+	if (ret)
+		return ret;
 
-	return ret;
+	if (dp->gop_plug_notify && trilin_dp_get_hpd_state(dp)) {
+		dp->gop_plug_notify = 0;
+		dev_info(dp->dev, "GOP boot: plug notify after HDCP init\n");
+		if (dp->drm)
+			drm_helper_hpd_irq_event(dp->drm);
+		dptx_audio_handle_plugged_change(&dp->dp_audio, true);
+		cix_hdcp_hpd_event_process(&dp->hdcp, true);
+	}
+
+	return 0;
 }
 
 void trilin_dp_hdcp_uninit(struct trilin_dpsub *dpsub)
@@ -3621,6 +3627,7 @@ int trilin_dp_probe(struct trilin_dpsub *dpsub, struct drm_device *drm)
 	dp->dev = dev;
 	dp->dpsub = dpsub;
 	dp->status = connector_status_unknown;
+	dp->gop_plug_notify = 0;
 
 	dpsub->drm = drm;
 	dp->drm = drm;
