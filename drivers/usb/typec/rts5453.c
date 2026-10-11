@@ -271,6 +271,11 @@ static void rts5453_update_port(struct rts5453 *rts)
 
 	/* Update partner registration */
 	rts5453_update_partner(rts);
+
+	/* Publish the cable orientation so /sys/class/typec/portX/orientation
+	 * reflects the real plug orientation (DP Alt-Mode / SBU mux consumers
+	 * read it). Requires cap->orientation_aware to be set. */
+	typec_set_orientation(rts->port, orientation);
 }
 
 static int rts5453_event_handler(struct rts5453 *rts, bool clear_irq)
@@ -392,6 +397,10 @@ static int rts5453_parse_port_caps(struct rts5453 *rts,
 	if (ret < 0)
 		return ret;
 	rts->typec_cap.prefer_role = ret;
+
+	/* This controller reports the CC-line orientation, so expose the
+	 * /sys/class/typec/portX/orientation attribute for it. */
+	rts->typec_cap.orientation_aware = 1;
 
 	return 0;
 }
