@@ -59,6 +59,10 @@
 static uint trilin_dp_aux_timeout_ms = 50;
 module_param_named(aux_timeout_ms, trilin_dp_aux_timeout_ms, uint, 0444);
 MODULE_PARM_DESC(aux_timeout_ms, "DP aux timeout value in msec (default: 50)");
+static uint trilin_dp_aux_recover_max = 2;
+module_param_named(aux_recover_max, trilin_dp_aux_recover_max, uint, 0644);
+MODULE_PARM_DESC(aux_recover_max,
+		 "Max AUX-engine re-inits per transfer before giving up (default: 2)");
 
 /*
  * Some sink requires a delay after power on request
@@ -892,11 +896,14 @@ static int trilin_dp_aux_cmd_submit(struct trilin_dp *dp, u32 cmd, u32 addr,
 	return 0;
 }
 
+/* defined below; re-runs the AUXHPD/DP-core reset sequence */
+static int reset_dp_and_reinit(struct trilin_dp *dp);
+
 static ssize_t trilin_dp_aux_transfer(struct drm_dp_aux *aux,
 				      struct drm_dp_aux_msg *msg)
 {
 	struct trilin_dp *dp = container_of(aux, struct trilin_dp, aux);
-	int ret = 0;
+	int ret = 0, recover;
 	unsigned int i, iter;
 	size_t to_access = 0, accessed_bytes = 0;
 
@@ -904,6 +911,7 @@ static ssize_t trilin_dp_aux_transfer(struct drm_dp_aux *aux,
 	iter = trilin_dp_aux_timeout_ms * 1000 / 400;
 	iter = iter ? iter : 1;
 
+	for (recover = 0; ; recover++) {
 	for (i = 0; i < iter; i++) {
 		to_access = 0;
 		accessed_bytes = 0;
@@ -941,6 +949,30 @@ static ssize_t trilin_dp_aux_transfer(struct drm_dp_aux *aux,
 
 		/* transient failure: back off (~400us) and retry the message */
 		usleep_range(400, 500);
+	}
+
+	if (!ret && accessed_bytes == msg->size)
+		break;
+
+	/*
+	 * NCZ: the Cadence AUXHPD block can be left with
+	 * REQUEST_IN_PROGRESS/REPLY_IN_PROGRESS latched after an aborted or
+	 * disabled transaction. Every subsequent transfer then fails -EBUSY
+	 * until the block is reset -- the block reset lives in the PHY
+	 * prepare path (trilin_usbdp_phy_prepare()), so force it by re-running
+	 * the DP-core/PHY reset sequence and retry, instead of returning a
+	 * failed DPCD/EDID read that stalls the compositor's modeset for tens
+	 * of seconds (MS-R1 cold-boot black screen). Bounded by
+	 * aux_recover_max so a truly dead sink still fails fast.
+	 */
+	if (ret == -EBUSY && recover < trilin_dp_aux_recover_max &&
+	    !reset_dp_and_reinit(dp)) {
+		DP_WARN("AUX engine wedged (EBUSY); reset AUX/PHY, retry %u
+",
+			recover + 1);
+		continue;
+	}
+	break;
 	}
 
 	if (ret) {
