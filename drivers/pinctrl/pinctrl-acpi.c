@@ -145,26 +145,49 @@ err_free_map:
 	return -ENOMEM;
 }
 
-static struct pinctrl_dev *get_pinctrl_dev_from_acpi_name(char *pinctrl_acpi)
+/*
+ * Look up the pin controller that an ACPI pin resource names.
+ *
+ * Returns the registered controller, or an ERR_PTR:
+ *  -ENODEV       the namespace has no such device, the device is not present,
+ *                or @dev is the controller itself (a controller's own
+ *                resources are hogs and are never deferred, as in the DT
+ *                path);
+ *  -EPROBE_DEFER the device exists but its driver has not registered the
+ *                controller yet. ACPI enumerates consumers such as the console
+ *                UART before the pin controller binds. Deferral ends at the
+ *                deferred probe timeout, as driver_deferred_probe_check_state()
+ *                decides.
+ */
+static struct pinctrl_dev *get_pinctrl_dev_from_acpi_name(struct device *dev,
+							  char *pinctrl_acpi)
 {
+	struct pinctrl_dev *pctldev;
 	struct acpi_device *adev;
-	const char *dev_name;
-	acpi_status status;
 	acpi_handle handle;
+	bool self;
 
-	status = acpi_get_handle(NULL, pinctrl_acpi, &handle);
-	if (ACPI_FAILURE(status))
-		return NULL;
+	if (ACPI_FAILURE(acpi_get_handle(NULL, pinctrl_acpi, &handle)))
+		return ERR_PTR(-ENODEV);
 
 	adev = acpi_get_acpi_dev(handle);
 	if (!adev)
-		return NULL;
+		return ERR_PTR(-ENODEV);
 
-	dev_name = acpi_dev_name(adev);
-	if (!dev_name)
-		return NULL;
+	if (!adev->status.present) {
+		acpi_put_acpi_dev(adev);
+		return ERR_PTR(-ENODEV);
+	}
 
-	return get_pinctrl_dev_from_devname(dev_name);
+	self = ACPI_COMPANION(dev) == adev;
+	pctldev = get_pinctrl_dev_from_devname(acpi_dev_name(adev));
+	acpi_put_acpi_dev(adev);
+	if (pctldev)
+		return pctldev;
+	if (self)
+		return ERR_PTR(-ENODEV);
+
+	return ERR_PTR(driver_deferred_probe_check_state(dev));
 }
 
 static int acpi_to_generic_pin_config(unsigned int acpi_param,
@@ -277,12 +300,11 @@ acpi_pin_resource_to_pinctrl_map(struct pinctrl *p, char *pinctrl_acpi,
 #define MAX_NUM_PINTRTL_STATE	(5)
 	const char *pinctrl_name[MAX_NUM_PINTRTL_STATE];
 
-	pctldev = get_pinctrl_dev_from_acpi_name(pinctrl_acpi);
-	if (!pctldev) {
-		dev_err(p->dev, "pctldev with ACPI name '%s' not found\n",
-			pinctrl_acpi);
-		return -ENXIO;
-	}
+	pctldev = get_pinctrl_dev_from_acpi_name(p->dev, pinctrl_acpi);
+	if (IS_ERR(pctldev))
+		return dev_err_probe(p->dev, PTR_ERR(pctldev),
+				     "pctldev with ACPI name '%s' not found\n",
+				     pinctrl_acpi);
 
 	ops = pctldev->desc->pctlops;
 	if (!ops->acpi_node_to_map) {
@@ -509,12 +531,11 @@ static int process_pin_group_config(struct pinctrl *p,
 		return ret;
 
 	pinctrl_acpi = ares->resource_source.string_ptr;
-	pctl_dev = get_pinctrl_dev_from_acpi_name(pinctrl_acpi);
-	if (!pctl_dev) {
-		dev_err(p->dev, "pctldev with ACPI name '%s' not found\n",
-			pinctrl_acpi);
-		return -ENXIO;
-	}
+	pctl_dev = get_pinctrl_dev_from_acpi_name(p->dev, pinctrl_acpi);
+	if (IS_ERR(pctl_dev))
+		return dev_err_probe(p->dev, PTR_ERR(pctl_dev),
+				     "pctldev with ACPI name '%s' not found\n",
+				     pinctrl_acpi);
 
 	adev = ACPI_COMPANION(pctl_dev->dev);
 	group = ares->resource_source_label.string_ptr;
@@ -576,12 +597,11 @@ process_pin_group_function(struct pinctrl *p,
 	pinctrl_acpi = ares->resource_source.string_ptr;
 	group = ares->resource_source_label.string_ptr;
 
-	pctl_dev = get_pinctrl_dev_from_acpi_name(pinctrl_acpi);
-	if (!pctl_dev) {
-		dev_err(p->dev, "pctldev with ACPI name '%s' not found\n",
-			pinctrl_acpi);
-		return -ENXIO;
-	}
+	pctl_dev = get_pinctrl_dev_from_acpi_name(p->dev, pinctrl_acpi);
+	if (IS_ERR(pctl_dev))
+		return dev_err_probe(p->dev, PTR_ERR(pctl_dev),
+				     "pctldev with ACPI name '%s' not found\n",
+				     pinctrl_acpi);
 
 	adev = ACPI_COMPANION(pctl_dev->dev);
 	if (ares->vendor_length > 0)
@@ -734,13 +754,23 @@ int pinctrl_acpi_to_map(struct pinctrl *p)
 
 	ret = parse_acpi_pin_functions(p);
 	if (ret < 0)
-		return ret;
+		goto err;
 
 	ret = parse_acpi_pin_configs(p);
 	if (ret < 0)
-		return ret;
+		goto err;
 
 	return 0;
+
+err:
+	/*
+	 * create_pinctrl() frees @p on error. Drop the maps already
+	 * registered for the resources parsed before the failure, or a
+	 * deferred probe leaks them and registers duplicates on each retry
+	 * (pinctrl_dt_to_map() does the same).
+	 */
+	pinctrl_acpi_free_maps(p);
+	return ret;
 }
 
 static int pinctrl_acpi_populate_group_desc(struct acpi_resource *ares,

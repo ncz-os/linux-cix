@@ -36,6 +36,7 @@
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/module.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/phy/phy.h>
@@ -59,6 +60,10 @@
 static uint trilin_dp_aux_timeout_ms = 50;
 module_param_named(aux_timeout_ms, trilin_dp_aux_timeout_ms, uint, 0444);
 MODULE_PARM_DESC(aux_timeout_ms, "DP aux timeout value in msec (default: 50)");
+static uint trilin_dp_aux_recover_max = 2;
+module_param_named(aux_recover_max, trilin_dp_aux_recover_max, uint, 0444);
+MODULE_PARM_DESC(aux_recover_max,
+		 "Max AUX-engine re-inits per transfer before giving up (default: 2)");
 
 /*
  * Some sink requires a delay after power on request
@@ -892,11 +897,49 @@ static int trilin_dp_aux_cmd_submit(struct trilin_dp *dp, u32 cmd, u32 addr,
 	return 0;
 }
 
+/* defined below; re-runs the AUXHPD/DP-core reset sequence */
+static int reset_dp_and_reinit(struct trilin_dp *dp);
+
+/*
+ * NCZ: the Cadence AUXHPD block latches REQUEST_IN_PROGRESS/REPLY_IN_PROGRESS
+ * when a transaction is aborted (e.g. a disable->enable cycle during the
+ * greetd/labwc handoff). While latched, trilin_dp_aux_cmd_submit() returns
+ * -EBUSY for every transfer and the link looks dead until the block is reset --
+ * and the block reset only runs in the PHY prepare path.
+ */
+static bool trilin_dp_aux_engine_busy(struct trilin_dp *dp)
+{
+	u32 reg = trilin_dp_read(dp, TRILIN_DPTX_AUX_STATUS);
+
+	return !!(reg & (TRILIN_DPTX_AUX_STATUS_REQUEST_IN_PROGRESS |
+			 TRILIN_DPTX_AUX_STATUS_REPLY_IN_PROGRESS));
+}
+
+/*
+ * Force the AUXHPD/DP-core reset sequence to actually re-prepare the PHY.
+ * reset_dp_and_reinit() re-runs phy_ops->prepare() (which resets AUXHPD), but
+ * prepare() is a no-op while the cached PHY state says "already prepared", and
+ * reset_dp_and_reinit() only clears that cache when it owns a phy_reset control.
+ * Invalidate the cache here so the recovery is never silently a no-op on a
+ * platform whose phy_reset is absent.
+ *
+ * Safe from inside trilin_dp_aux_transfer() (which holds aux->hw_mutex) and
+ * from trilin_dp_core_on() (called under session_lock): the sequence takes no
+ * mutex and performs no drm_dp_dpcd_* access, so it cannot re-enter
+ * trilin_dp_aux_transfer(). It touches MMIO/reset controls only, and both
+ * callers run with the device already runtime-active in an AUX/modeset.
+ */
+static int trilin_dp_aux_engine_reinit(struct trilin_dp *dp)
+{
+	dp->phy.state = trilin_phy_power_off;
+	return reset_dp_and_reinit(dp);
+}
+
 static ssize_t trilin_dp_aux_transfer(struct drm_dp_aux *aux,
 				      struct drm_dp_aux_msg *msg)
 {
 	struct trilin_dp *dp = container_of(aux, struct trilin_dp, aux);
-	int ret = 0;
+	int ret = 0, recover;
 	unsigned int i, iter;
 	size_t to_access = 0, accessed_bytes = 0;
 
@@ -904,6 +947,7 @@ static ssize_t trilin_dp_aux_transfer(struct drm_dp_aux *aux,
 	iter = trilin_dp_aux_timeout_ms * 1000 / 400;
 	iter = iter ? iter : 1;
 
+	for (recover = 0; recover <= trilin_dp_aux_recover_max; recover++) {
 	for (i = 0; i < iter; i++) {
 		to_access = 0;
 		accessed_bytes = 0;
@@ -941,6 +985,33 @@ static ssize_t trilin_dp_aux_transfer(struct drm_dp_aux *aux,
 
 		/* transient failure: back off (~400us) and retry the message */
 		usleep_range(400, 500);
+	}
+
+	if (!ret && accessed_bytes == msg->size)
+		break;
+
+	/*
+	 * NCZ: the Cadence AUXHPD block can be left with
+	 * REQUEST_IN_PROGRESS/REPLY_IN_PROGRESS latched after an aborted or
+	 * disabled transaction. Every subsequent transfer then fails -EBUSY
+	 * until the block is reset -- the block reset lives in the PHY
+	 * prepare path (trilin_usbdp_phy_prepare()), so force it by re-running
+	 * the DP-core/PHY reset sequence and retry, instead of returning a
+	 * failed DPCD/EDID read that stalls the compositor's modeset for tens
+	 * of seconds (MS-R1 cold-boot black screen). Bounded by
+	 * aux_recover_max so a truly dead sink still fails fast.
+	 */
+	/* hard error other than a wedged engine: no point resetting */
+	if (ret != -EBUSY)
+		break;
+	/* recovery budget spent: report the failure and let the caller decide */
+	if (recover == trilin_dp_aux_recover_max)
+		break;
+	/* re-init the AUX/PHY; if that fails there is nothing left to try */
+	if (trilin_dp_aux_engine_reinit(dp))
+		break;
+	DP_WARN("AUX engine wedged (EBUSY); reset AUX/PHY, retry %u\n",
+		recover + 1);
 	}
 
 	if (ret) {
@@ -2134,8 +2205,20 @@ static int trilin_dp_core_on(struct trilin_dp *dp, bool shallow)
 
 	DP_DEBUG("enter");
 	if (dp->state & DPTX_STATE_READY) {
+		int err = 0;
+
 		DP_DEBUG("[already ready]");
-		return rc;
+		/*
+		 * NCZ: a stream-only disable (trilin_dp_disable) does not
+		 * core_off(), so the DPTX stays READY and this path skips the PHY
+		 * re-init entirely. If the AUX engine was left wedged by a
+		 * disable->enable cycle, no later core_on would ever clear it --
+		 * exactly the MS-R1 ~43 s greeter stall. Recover the engine here
+		 * (bounded) so the modeset that follows can read DPCD/EDID.
+		 */
+		if (trilin_dp_aux_engine_busy(dp))
+			err = trilin_dp_aux_engine_reinit(dp);
+		return err;
 	}
 
 	dp->state |= DPTX_STATE_READY;
@@ -3438,13 +3521,70 @@ static void trilin_dp_gop_set(void)
 			dp_gop_bit << DP_GOP_SHIFT, 0, 0, 0, 0, 0, &res);
 }
 
+static void trilin_dp_edp_panel_put(void *data)
+{
+	drm_panel_put(data);
+}
+
+/*
+ * Resolve the optional "edp-panel" firmware reference.
+ *
+ * v7.3 exports only the device-tree lookup, of_drm_find_panel(), and since
+ * b71a623598d3 it returns a counted reference that the caller must drop with
+ * drm_panel_put(). The fwnode-keyed lookup, find_panel_by_fwnode(), is
+ * static in drm_panel.c. The NCZ-only fwnode_drm_find_panel() export that
+ * used to wrap it (the 7.2 patch 0058) is gone, so there is no exported
+ * lookup for a panel that is described only by ACPI.
+ *
+ * Contract:
+ *  - no "edp-panel" reference: return NULL and probe as standard DP
+ *    (the 0008 code left edp_panel uninitialized on this path).
+ *  - reference on a non-OF (ACPI) fwnode: warn, return NULL, and probe
+ *    as standard DP. No Sky1 ACPI panel provider is built
+ *    (CONFIG_DRM_CIX_EDP_PANEL is not set), so the old code could only
+ *    defer this port forever.
+ *  - OF reference: of_drm_find_panel(), which returns -EPROBE_DEFER or
+ *    -ENODEV unchanged. On success the panel reference is dropped by a
+ *    devm action on @dev, so it stays balanced even after
+ *    trilin_dp_edp_drop_panel() clears dp->edp_panel.
+ *  - the fwnode reference from fwnode_find_reference() is always put.
+ *    The 0008 code leaked it on every path.
+ */
+static struct drm_panel *trilin_dp_find_edp_panel(struct device *dev)
+{
+	struct fwnode_handle *fwnode;
+	struct drm_panel *panel;
+	int ret;
+
+	fwnode = fwnode_find_reference(dev_fwnode(dev), "edp-panel", 0);
+	if (IS_ERR_OR_NULL(fwnode))
+		return NULL;
+
+	if (!is_of_node(fwnode)) {
+		dev_warn(dev,
+			 "edp-panel reference on a non-OF firmware node is not supported; probing as standard DP\n");
+		fwnode_handle_put(fwnode);
+		return NULL;
+	}
+
+	panel = of_drm_find_panel(to_of_node(fwnode));
+	fwnode_handle_put(fwnode);
+	if (IS_ERR(panel))
+		return panel;
+
+	ret = devm_add_action_or_reset(dev, trilin_dp_edp_panel_put, panel);
+	if (ret)
+		return ERR_PTR(ret);
+
+	return panel;
+}
+
 int trilin_dp_probe(struct trilin_dpsub *dpsub, struct drm_device *drm)
 {
 	struct platform_device *pdev = to_platform_device(dpsub->dev);
 	struct trilin_dp *dp;
 	struct resource *res_dp, *res_phy, *res_rcsu = NULL;
 	struct device *dev;
-	struct fwnode_handle *fwnode_edp_panel;
 	struct drm_panel *edp_panel;
 	int ret;
 	const char *str_prop;
@@ -3452,16 +3592,13 @@ int trilin_dp_probe(struct trilin_dpsub *dpsub, struct drm_device *drm)
 	u32 psr_default_on = 1;
 
 	dev = &pdev->dev;
-	fwnode_edp_panel = fwnode_find_reference(dev->fwnode, "edp-panel", 0);
-	if (!IS_ERR_OR_NULL(fwnode_edp_panel)) {
-		edp_panel = fwnode_drm_find_panel(fwnode_edp_panel);
-		if (IS_ERR(edp_panel)) {
-			dev_err(dev, "%s, invalid drm_panel\n", __func__);
-			return PTR_ERR(edp_panel);
-		} else
-			dev_info(dev, "%s, edp-panel %s is found\n", __func__,
-				 dev_name(edp_panel->dev));
-	}
+	edp_panel = trilin_dp_find_edp_panel(dev);
+	if (IS_ERR(edp_panel))
+		return dev_err_probe(dev, PTR_ERR(edp_panel),
+				     "%s, invalid edp-panel\n", __func__);
+	if (edp_panel)
+		dev_info(dev, "%s, edp-panel %s is found\n", __func__,
+			 dev_name(edp_panel->dev));
 
 	dp = devm_kzalloc(dpsub->dev, sizeof(*dp), GFP_KERNEL);
 	if (!dp)

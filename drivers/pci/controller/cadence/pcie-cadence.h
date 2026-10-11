@@ -320,6 +320,8 @@ struct cdns_pcie_rc {
 	unsigned int		quirk_detect_quiet_flag:1;
 	unsigned int            ecam_supported:1;
 	unsigned int            no_inbound_map:1;
+	/* NCZ Sky1 ACPI native mode: program HPA outbound region 0 for ECAM */
+	unsigned int            sky1_bsp_ecam_region:1;
 	unsigned int            quirk_broken_aspm_l0s:1;
 	unsigned int            quirk_broken_aspm_l1:1;
 };
@@ -700,6 +702,8 @@ static inline int cdns_pcie_hpa_ep_setup(struct cdns_pcie_ep *ep)
 
 #endif
 
+u8   sky1_cdns_pcie_find_capability(void __iomem *reg_base, u8 cap);
+u16  sky1_cdns_pcie_find_ext_capability(void __iomem *reg_base, u16 cap);
 u8   cdns_pcie_find_capability(struct cdns_pcie *pcie, u8 cap);
 u16  cdns_pcie_find_ext_capability(struct cdns_pcie *pcie, u8 cap);
 bool cdns_pcie_linkup(struct cdns_pcie *pcie);

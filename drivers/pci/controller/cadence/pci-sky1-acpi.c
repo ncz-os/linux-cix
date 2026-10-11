@@ -114,7 +114,12 @@ static int sky1_cixh2020_create_pdev(struct acpi_device *adev)
 	 * The ACPI companion is bound post-registration (see below) so
 	 * bus_find_device_by_acpi_dev() works for RSTL reset lookups.
 	 */
-	pdevinfo.name = "sky1-pcie";
+	/*
+	 * Named after the vendor driver: "sky1-pcie" is mainline pci-sky1.c
+	 * (DT only), which would otherwise name-match this device and run a
+	 * probe that can only fail.
+	 */
+	pdevinfo.name = "sky1-pcie-cix";
 	pdevinfo.id = PLATFORM_DEVID_AUTO;
 	pdevinfo.res = resources;
 	pdevinfo.num_res = count;

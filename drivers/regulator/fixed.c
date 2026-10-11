@@ -28,6 +28,8 @@
 #include <linux/regulator/of_regulator.h>
 #include <linux/regulator/machine.h>
 #include <linux/clk.h>
+#include <linux/regulator/fwnode_regulator.h>
+#include <linux/acpi.h>
 
 struct fixed_voltage_data {
 	struct regulator_desc desc;
@@ -200,6 +202,56 @@ of_get_fixed_voltage_config(struct device *dev,
 	return config;
 }
 
+static struct fixed_voltage_config *
+fwnode_get_fixed_voltage_config(struct device *dev,
+			    const struct regulator_desc *desc)
+{
+	struct fixed_voltage_config *config;
+	struct fwnode_handle *np = dev->fwnode;
+	struct regulator_init_data *init_data;
+
+	config = devm_kzalloc(dev, sizeof(struct fixed_voltage_config),
+								 GFP_KERNEL);
+	if (!config)
+		return ERR_PTR(-ENOMEM);
+
+	config->init_data = fwnode_get_regulator_init_data(dev, np, desc);
+	if (!config->init_data)
+		return ERR_PTR(-EINVAL);
+
+	init_data = config->init_data;
+	init_data->constraints.apply_uV = 0;
+
+	config->supply_name = init_data->constraints.name;
+	if (init_data->constraints.min_uV == init_data->constraints.max_uV) {
+		config->microvolts = init_data->constraints.min_uV;
+	} else {
+		dev_err(dev,
+			 "Fixed regulator specified with variable voltages\n");
+		return ERR_PTR(-EINVAL);
+	}
+
+	/*
+	 * CIX Sky1 ACPI describes fixed rails that firmware has already
+	 * enabled, but does not set regulator-boot-on.  Preserve that state
+	 * when acquiring the enable GPIO.  Requesting it low here glitches
+	 * live PCIe supplies after enumeration; in particular, both RTL8127
+	 * devices disappear between r8169 probe and open on BIOS 1.0.
+	 *
+	 * This restores the behavior of the original CIX ACPI fixed-regulator
+	 * support before the generic fwnode constraint parser replaced it.
+	 */
+	config->enabled_at_boot = true;
+
+	fwnode_property_read_u32(np, "startup-delay-us", &config->startup_delay);
+	fwnode_property_read_u32(np, "off-on-delay-us", &config->off_on_delay);
+
+	if (fwnode_property_present(np, "vin-supply"))
+		config->input_supply = "vin";
+
+	return config;
+}
+
 static const struct regulator_ops fixed_voltage_ops = {
 };
 
@@ -232,6 +284,11 @@ static int reg_fixed_voltage_probe(struct platform_device *pdev)
 
 	if (pdev->dev.of_node) {
 		config = of_get_fixed_voltage_config(&pdev->dev,
+						     &drvdata->desc);
+		if (IS_ERR(config))
+			return PTR_ERR(config);
+	} else if (has_acpi_companion(&pdev->dev)) {
+		config = fwnode_get_fixed_voltage_config(&pdev->dev,
 						     &drvdata->desc);
 		if (IS_ERR(config))
 			return PTR_ERR(config);
@@ -323,6 +380,7 @@ static int reg_fixed_voltage_probe(struct platform_device *pdev)
 	cfg.init_data = config->init_data;
 	cfg.driver_data = drvdata;
 	cfg.of_node = pdev->dev.of_node;
+	cfg.fwnode = pdev->dev.fwnode;
 
 	drvdata->dev = devm_regulator_register(&pdev->dev, &drvdata->desc,
 					       &cfg);

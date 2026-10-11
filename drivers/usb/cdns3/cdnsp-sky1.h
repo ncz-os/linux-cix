@@ -118,6 +118,7 @@ struct cdnsp_sky1 {
 	bool ssp_disable;
 	int axi_bmax_value;
 	struct gpio_desc *oc_gpio;
+	bool rpm_hold;	/* ACPI: usage ref held until children bind */
 };
 
 #endif /* __LINUX_CDNSP_SKY1_H */

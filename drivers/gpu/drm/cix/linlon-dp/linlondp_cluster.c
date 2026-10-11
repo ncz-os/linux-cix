@@ -232,9 +232,15 @@ static int linlondp_cluster_acpi_child_cb(struct acpi_device *child, void *data)
 
 	phys = acpi_get_first_physical_node(child);
 	if (!phys) {
-		dev_warn(ctx->cluster_dev,
-			 "ACPI cluster: skip child %s, no physical node (trimmed?)\n",
-			 dev_name(&child->dev));
+		/* A DPU the firmware disabled (_STA = 0) is expected. */
+		if (!child->status.present)
+			dev_dbg(ctx->cluster_dev,
+				"ACPI cluster: skip child %s, disabled by firmware\n",
+				dev_name(&child->dev));
+		else
+			dev_warn(ctx->cluster_dev,
+				 "ACPI cluster: skip child %s, no physical node\n",
+				 dev_name(&child->dev));
 		return 0;
 	}
 
@@ -320,9 +326,20 @@ static int linlondp_cluster_collect_dpus_acpi_paths(struct device *dev,
 
 		phys = acpi_get_first_physical_node(adev);
 		if (!phys) {
-			dev_warn(dev,
-				 "linlon-cluster: skip ACPI path \"%s\", no physical node (trimmed?)\n",
-				 path);
+			/*
+			 * Boards with fewer display pipes keep the DPU in the
+			 * namespace and disable it with _STA = 0 (O6N: DPU2 and
+			 * DPU3). Such a DPU never gets a platform device; that
+			 * is expected, not an error.
+			 */
+			if (!adev->status.present)
+				dev_dbg(dev,
+					"linlon-cluster: skip ACPI path \"%s\", disabled by firmware\n",
+					path);
+			else
+				dev_warn(dev,
+					 "linlon-cluster: skip ACPI path \"%s\", no physical node\n",
+					 path);
 			continue;
 		}
 
