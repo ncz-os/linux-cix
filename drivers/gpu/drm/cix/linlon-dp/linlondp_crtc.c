@@ -120,6 +120,11 @@ static int linlondp_crtc_atomic_check(struct drm_crtc *crtc,
 /* For active a crtc, mainly need two parts of preparation
  * 1. adjust display operation mode.
  * 2. enable needed clk
+ *
+ * The engine clock (aclk) may only change while the unit is inactive. It is
+ * therefore programmed before the unit leaves the inactive mode, and when a
+ * second output needs a faster engine clock than the first one runs at, the
+ * unit is taken inactive for the rate change and then put into dual mode.
  */
 static int linlondp_crtc_prepare(struct linlondp_crtc *kcrtc)
 {
@@ -127,6 +132,7 @@ static int linlondp_crtc_prepare(struct linlondp_crtc *kcrtc)
 	struct linlondp_pipeline *master = kcrtc->master;
 	struct linlondp_crtc_state *kcrtc_st = to_kcrtc_st(kcrtc->base.state);
 	struct drm_display_mode *mode = &kcrtc_st->base.adjusted_mode;
+	unsigned long need_aclk;
 	u32 new_mode;
 	int err;
 
@@ -138,21 +144,11 @@ static int linlondp_crtc_prepare(struct linlondp_crtc *kcrtc)
 		goto unlock;
 	}
 
-	err = mdev->funcs->change_opmode(mdev, new_mode);
-	if (err) {
-		DRM_ERROR("failed to change opmode: 0x%x -> 0x%x.\n,",
-			  mdev->dpmode, new_mode);
-		goto unlock;
-	}
+	need_aclk = linlondp_crtc_get_aclk(kcrtc_st);
 
-	mdev->dpmode = new_mode;
-	/* Only need to enable aclk on single display mode, but no need to
-	 * enable aclk it on dual display mode, since the dual mode always
-	 * switch from single display mode, the aclk already enabled, no need
-	 * to enable it again.
-	 */
-	if (new_mode != LINLONDP_MODE_DUAL_DISP) {
-		mdev->aclk_freq = linlondp_crtc_get_aclk(kcrtc_st);
+	if (mdev->dpmode == LINLONDP_MODE_INACTIVE) {
+		/* first output: the unit is inactive, set the rate now */
+		mdev->aclk_freq = need_aclk;
 #if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
 		err = clk_set_rate(mdev->aclk, mdev->aclk_freq);
 		if (err)
@@ -161,7 +157,31 @@ static int linlondp_crtc_prepare(struct linlondp_crtc *kcrtc)
 		if (err)
 			DRM_ERROR("failed to enable aclk.\n");
 #endif
+	} else if (need_aclk > mdev->aclk_freq) {
+		/* second output needs more: change the rate while inactive */
+#if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
+		err = mdev->funcs->change_opmode(mdev, LINLONDP_MODE_INACTIVE);
+		if (err) {
+			DRM_ERROR("failed to leave mode 0x%x for the aclk change.\n",
+				  mdev->dpmode);
+			goto unlock;
+		}
+		err = clk_set_rate(mdev->aclk, need_aclk);
+		if (err)
+			DRM_ERROR("failed to raise aclk to %lu.\n", need_aclk);
+		else
+			mdev->aclk_freq = need_aclk;
+#endif
 	}
+
+	err = mdev->funcs->change_opmode(mdev, new_mode);
+	if (err) {
+		DRM_ERROR("failed to change opmode: 0x%x -> 0x%x.\n,",
+			  mdev->dpmode, new_mode);
+		goto unlock;
+	}
+
+	mdev->dpmode = new_mode;
 
 #if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
 	/* walk round to solve failing to set clock rate in std scence
@@ -211,7 +231,9 @@ static int linlondp_crtc_unprepare(struct linlondp_crtc *kcrtc)
 	if (new_mode == LINLONDP_MODE_INACTIVE)
 		clk_disable_unprepare(mdev->aclk);
 #endif
-	mdev->aclk_freq = 0;
+	/* the remaining output keeps running at the current engine clock */
+	if (new_mode == LINLONDP_MODE_INACTIVE)
+		mdev->aclk_freq = 0;
 unlock:
 	mutex_unlock(&mdev->lock);
 
