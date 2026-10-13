@@ -354,6 +354,84 @@ static void linlondp_crtc_do_flush(struct drm_crtc *crtc,
 	mdev->funcs->flush(mdev, master->id, kcrtc_st->active_pipes);
 }
 
+/*
+ * The engine clock and the pixel clock of every pipeline must be running
+ * while the firmware output is torn down and while the unit reset is
+ * released; a reset released with a stopped clock leaves the unit in an
+ * undefined state. The clocks are enabled only for the duration of the
+ * takeover, so the enable counts stay balanced and the normal enable path
+ * below is unchanged.
+ */
+static void linlondp_crtc_takeover_from_gop(struct linlondp_dev *mdev)
+{
+#if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
+	bool clk_on[LINLONDP_MAX_PIPELINES] = { false };
+	bool aclk_on = false;
+	int i;
+#endif
+	bool clocks_ok = true;
+	int err;
+
+	mdev->funcs->disable_irq(mdev);
+
+#if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
+	err = clk_prepare_enable(mdev->aclk);
+	if (err)
+		dev_err(mdev->dev, "%s: failed to enable aclk: %d\n", __func__, err);
+	else
+		aclk_on = true;
+
+	for (i = 0; i < mdev->n_pipelines; i++) {
+		struct linlondp_pipeline *pipe = mdev->pipelines[i];
+
+		if (!pipe || !pipe->pxlclk)
+			continue;
+		err = clk_prepare_enable(pipe->pxlclk);
+		if (err)
+			dev_err(mdev->dev, "%s: failed to enable pxlclk%d: %d\n",
+				__func__, pipe->id, err);
+		else
+			clk_on[i] = true;
+	}
+#endif
+
+	/* stop every pipeline the firmware left running */
+	mdev->funcs->close_gop(mdev);
+
+	/* leave the operating mode before the reset, so no unit is active */
+	err = mdev->funcs->change_opmode(mdev, LINLONDP_MODE_INACTIVE);
+	if (err)
+		dev_warn(mdev->dev, "%s: unit did not go inactive: %d\n",
+			 __func__, err);
+	mdev->dpmode = LINLONDP_MODE_INACTIVE;
+
+#if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
+	/* never release the reset with a clock that could not be started */
+	clocks_ok = aclk_on;
+	for (i = 0; i < mdev->n_pipelines; i++)
+		if (mdev->pipelines[i] && mdev->pipelines[i]->pxlclk && !clk_on[i])
+			clocks_ok = false;
+#endif
+	if (clocks_ok) {
+		reset_control_assert(mdev->ip_rst);
+		mdelay(1);
+		reset_control_deassert(mdev->ip_rst);
+		mdelay(1);
+	} else {
+		dev_err(mdev->dev, "%s: a display clock did not start, unit reset skipped\n",
+			__func__);
+	}
+
+#if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
+	for (i = 0; i < mdev->n_pipelines; i++)
+		if (clk_on[i])
+			clk_disable_unprepare(mdev->pipelines[i]->pxlclk);
+	if (aclk_on)
+		clk_disable_unprepare(mdev->aclk);
+#endif
+	dev_info(mdev->dev, "%s: firmware output released\n", __func__);
+}
+
 static void linlondp_crtc_atomic_enable(struct drm_crtc *crtc,
 					struct drm_atomic_commit *state)
 {
@@ -361,7 +439,6 @@ static void linlondp_crtc_atomic_enable(struct drm_crtc *crtc,
 	struct drm_crtc_state *old = drm_atomic_get_old_crtc_state(state, crtc);
 	struct linlondp_crtc *kcrtc = to_kcrtc(crtc);
 	struct linlondp_dev *mdev = kcrtc->master->mdev;
-	struct linlondp_pipeline *master = kcrtc->master;
 	struct drm_crtc_state *crtc_state = crtc->state;
 	struct drm_display_mode *mode = &crtc_state->adjusted_mode;
 
@@ -376,26 +453,8 @@ static void linlondp_crtc_atomic_enable(struct drm_crtc *crtc,
 
 	if (mdev->enabled_by_gop) {
 		mdev->enabled_by_gop = 0;
-		if (mdev->funcs->gop_mode_changed(mdev, mode)) {
-			mdev->funcs->disable_irq(mdev);
-			mdev->funcs->close_gop(mdev);
-
-			#if !IS_ENABLED(CONFIG_DRM_LINLONDP_CLOCK_FIXED)
-			err = clk_prepare_enable(master->pxlclk);
-			if (err)
-				dev_err(mdev->dev, "%s, failed to enable pxlclk.\n", __func__);
-			#endif
-
-			if (__clk_is_enabled(master->pxlclk)) {
-				clk_disable_unprepare(master->pxlclk);
-				dev_info(mdev->dev, "%s, succeed to disable pxlclk.\n", __func__);
-			}
-
-			reset_control_assert(mdev->ip_rst);
-			mdelay(1);
-			reset_control_deassert(mdev->ip_rst);
-			mdelay(1);
-		}
+		if (mdev->funcs->gop_mode_changed(mdev, mode))
+			linlondp_crtc_takeover_from_gop(mdev);
 	}
 
 	err = clk_prepare_enable(mdev->aclk);

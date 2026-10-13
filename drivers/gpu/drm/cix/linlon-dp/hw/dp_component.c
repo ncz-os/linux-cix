@@ -1625,49 +1625,83 @@ void dp_dump(struct linlondp_dev *mdev, struct seq_file *sf)
 	dp_gcu_dump(dp, sf);
 }
 
-static void dp_wait_flip_done(struct linlondp_dev *mdev)
+/* true while the pipeline's timing controller is generating a video signal */
+static bool dp_pipeline_scanning_out(struct linlondp_pipeline *pipe)
 {
-	struct dp_dev *dp = mdev->chip_data;
-	int ret;
+	if (!pipe || !pipe->ctrlr)
+		return false;
 
-	ret = dp_wait_cond(((linlondp_read32(dp->gcu_addr, GCU_CONFIG_VALID0) &
-			     0x1) == 0x0),
-			   50, 1000, 10000);
-	if (ret)
-		dev_err(mdev->dev, "%s timeout\n", __func__);
+	return linlondp_read32(pipe->ctrlr->base.reg, BLK_CONTROL) & BS_CTRL_EN;
 }
 
+static void dp_wait_pipe_config_done(struct linlondp_dev *mdev, int pipe_id)
+{
+	struct dp_dev *dp = mdev->chip_data;
+	u32 reg = pipe_id ? GCU_CONFIG_VALID1 : GCU_CONFIG_VALID0;
+	int ret;
+
+	ret = dp_wait_cond(((linlondp_read32(dp->gcu_addr, reg) & 0x1) == 0x0),
+			   50, 1000, 10000);
+	if (ret)
+		dev_err(mdev->dev, "pipe%d config update timeout\n", pipe_id);
+}
+
+/*
+ * Switch off every block of one pipeline that firmware left running. Same two
+ * phases as a normal pipeline disable: first everything except the output
+ * stage, then the output stage itself, each latched with that pipeline's own
+ * config-valid bit.
+ */
+static void dp_quiesce_pipeline(struct linlondp_dev *mdev,
+				struct linlondp_pipeline *pipe)
+{
+	struct dp_dev *dp = mdev->chip_data;
+	struct linlondp_component *c;
+	unsigned long comps;
+	u32 id;
+	int phase;
+
+	for (phase = 0; phase < 2; phase++) {
+		comps = pipe->avail_comps;
+		if (phase == 0)
+			comps &= ~pipe->standalone_disabled_comps;
+		else
+			comps &= pipe->standalone_disabled_comps;
+
+		for_each_set_bit(id, &comps, 32) {
+			c = linlondp_pipeline_get_component(pipe, id);
+			if (c && c->funcs && c->funcs->disable)
+				c->funcs->disable(c);
+		}
+
+		linlondp_write32(dp->gcu_addr,
+				 pipe->id ? GCU_CONFIG_VALID1 : GCU_CONFIG_VALID0,
+				 GCU_CONFIG_CVAL);
+		dp_wait_pipe_config_done(mdev, pipe->id);
+	}
+}
+
+/*
+ * Take the display unit over from the firmware framebuffer. Firmware may have
+ * lit either pipeline (or both), so every pipeline that is still scanning out
+ * is shut down, not only pipeline 0.
+ */
 void dp_close_gop(struct linlondp_dev *mdev)
 {
-	u32 __iomem *base = mdev->reg_base;
+	int i;
 
 	dev_info(mdev->dev, "%s enter\n", __func__);
 
-	/* disable needs two phase, firstly do first phase */
-	linlondp_write32(base, LPU0_LAYER0 + BLK_CONTROL,
-			 0); // disbale lpu0_layer0
-	linlondp_write32(base, LPU0_LAYER2 + BLK_CONTROL,
-			 0); // disable lpu0_layer2
-	linlondp_write32(base, CU0 + CU_INPUT_ID0, 0); // clear cu inputid0
-	linlondp_write32(base, CU0 + CU_INPUT_ID1, 0); // clear cu inputid1
-	linlondp_write32(base, CU0_SCALER0 + BLK_CONTROL,
-			 0); // disable cu0_sclaer0
-	linlondp_write32(base, CU0_SCALER1 + BLK_CONTROL,
-			 0); // disable cu0_scaler1
-	linlondp_write32(base, CU0_MERGER + BLK_CONTROL,
-			 0); // disable cu0_merger
-	linlondp_write32(base, GCU_CONFIG_VALID0, 1); // config valid
+	for (i = 0; i < mdev->n_pipelines; i++) {
+		struct linlondp_pipeline *pipe = mdev->pipelines[i];
 
-	dp_wait_flip_done(mdev);
+		if (!dp_pipeline_scanning_out(pipe))
+			continue;
 
-	/* do second phase */
-	linlondp_write32(base, DOU0_IPS + IPS_INPUT_ID0,
-			 0); // clear dou0_ips inputid0
-	linlondp_write32(base, DOU0_IPS + BLK_CONTROL, 0); // disable dou0_ips
-	linlondp_write32(base, DOU0_BS + BLK_CONTROL, 0); // disable dou0_bs
-	linlondp_write32(base, GCU_CONFIG_VALID0, 1); //config valid
-
-	dp_wait_flip_done(mdev);
+		dev_info(mdev->dev, "%s: stopping firmware output on pipe%d\n",
+			 __func__, pipe->id);
+		dp_quiesce_pipeline(mdev, pipe);
+	}
 }
 
 bool dp_gop_mode_changed(struct linlondp_dev *mdev, struct drm_display_mode *mode)
@@ -1682,6 +1716,15 @@ bool dp_gop_mode_changed(struct linlondp_dev *mdev, struct drm_display_mode *mod
 	u32 vback_porch = mode->crtc_vtotal - mode->crtc_vsync_end;
 
 	dev_dbg(mdev->dev, "%s enter\n", __func__);
+
+	/*
+	 * Only pipeline 0 is compared against the requested mode. If firmware
+	 * also drives pipeline 1, the unit is not in a state the driver can
+	 * adopt as-is: report a change so the full takeover runs.
+	 */
+	if (mdev->n_pipelines > 1 &&
+	    dp_pipeline_scanning_out(mdev->pipelines[1]))
+		return true;
 
 	hv = linlondp_read32(base, DOU0_BS + BS_ACTIVESIZE);
 	hporch = linlondp_read32(base, DOU0_BS + BS_HINTERVALS);
