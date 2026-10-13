@@ -429,10 +429,18 @@ static bool pci_bridge_has_parent_io_window(struct pci_dev *dev)
 	return false;
 }
 
+/*
+ * Sky1 root ports report 1f6c:0001 when the kernel programs them (native
+ * mode) and the controller default 17cd:0100 when firmware owns the
+ * configuration (ECAM mode).
+ */
 static bool pci_bridge_is_cix_sky1_root_port(struct pci_dev *dev)
 {
-	return pci_is_root_bus(dev->bus) &&
-	       dev->vendor == 0x17cd && dev->device == 0x0100;
+	if (!pci_is_root_bus(dev->bus))
+		return false;
+
+	return (dev->vendor == 0x1f6c && dev->device == 0x0001) ||
+	       (dev->vendor == 0x17cd && dev->device == 0x0100);
 }
 
 static void pci_read_bridge_mmio(struct pci_dev *dev, struct resource *res,

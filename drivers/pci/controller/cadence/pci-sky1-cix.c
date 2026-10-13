@@ -27,6 +27,13 @@
 #include "pcie-cadence.h"
 #include "pci-sky1-acpi.h"
 #include "pci-sky1-cix.h"
+
+#ifndef PCI_VENDOR_ID_CIX
+#define PCI_VENDOR_ID_CIX		0x1f6c
+#endif
+#ifndef PCI_DEVICE_ID_CIX_SKY1
+#define PCI_DEVICE_ID_CIX_SKY1		0x0001
+#endif
 #include "pci-sky1-debugfs.h"
 #include <linux/platform_device.h>
 
@@ -2430,6 +2437,14 @@ static int sky1_pcie_probe(struct platform_device *pdev)
 	rc->sky1_bsp_ecam_region = 1;
 	rc->cfg_base = pcie->cfg->win;
 	rc->cfg_res = &pcie->cfg->res;
+	/*
+	 * Report the CIX Sky1 root port ID, as the mainline pci-sky1 driver
+	 * does. The controller default is the Cadence vendor ID with a device
+	 * ID that is also used by Cadence USB3 controllers, so USB PCI glue
+	 * drivers would otherwise match the root ports.
+	 */
+	rc->vendor_id = PCI_VENDOR_ID_CIX;
+	rc->device_id = PCI_DEVICE_ID_CIX_SKY1;
 
 	cdns_pcie = &rc->pcie;
 	cdns_pcie->dev = dev;
