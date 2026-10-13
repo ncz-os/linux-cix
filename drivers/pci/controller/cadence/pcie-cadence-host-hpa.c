@@ -477,6 +477,15 @@ int cdns_pcie_hpa_host_setup(struct cdns_pcie_rc *rc)
 		device_property_read_u32(dev, "vendor-id", &rc->vendor_id);
 	if (rc->device_id == 0 || rc->device_id == 0xffff)
 		device_property_read_u32(dev, "device-id", &rc->device_id);
+	/*
+	 * Nothing provided an ID: keep the value the controller reports. A
+	 * zero-initialised rc would otherwise program 0000:0000 into the root
+	 * port, because only 0xffff means "do not write".
+	 */
+	if (rc->vendor_id == 0)
+		rc->vendor_id = 0xffff;
+	if (rc->device_id == 0)
+		rc->device_id = 0xffff;
 
 	if (!pcie->reg_base) {
 		pcie->reg_base = devm_platform_ioremap_resource_byname(pdev, "reg");
