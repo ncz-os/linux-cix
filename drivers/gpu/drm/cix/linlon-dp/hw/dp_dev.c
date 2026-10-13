@@ -307,12 +307,20 @@ static void dp_flush(struct linlondp_dev *mdev, int master_pipe,
 	linlondp_write32(dp->gcu_addr, reg_offset, GCU_CONFIG_CVAL);
 }
 
+/* software reset of the display unit; returns once the unit reports done */
 static void dpu_sw_reset(struct linlondp_dev *mdev)
 {
 	struct dp_dev *dp = mdev->chip_data;
 	u32 __iomem *gcu = dp->gcu_addr;
+	int ret;
 
 	linlondp_write32_mask(gcu, BLK_CONTROL, GCU_CONTROL_SRST, GCU_CONTROL_SRST);
+
+	ret = dp_wait_cond(!(linlondp_read32(gcu, BLK_CONTROL) &
+			     GCU_CONTROL_SRST),
+			   100, 1000, 10000);
+	if (ret)
+		dev_err(mdev->dev, "unit software reset did not complete\n");
 }
 
 static int dp_reset(struct dp_dev *dp)

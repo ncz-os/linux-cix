@@ -11,6 +11,8 @@
 
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_drv.h>
+#include <drm/drm_modeset_lock.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_print.h>
 #include <drm/drm_vblank.h>
@@ -498,6 +500,106 @@ static void linlondp_crtc_atomic_enable(struct drm_crtc *crtc,
 	dev_info(mdev->dev, "%s exit\n", __func__);
 }
 
+#define LINLONDP_RECOVER_WINDOW_MS	30000
+#define LINLONDP_RECOVER_MAX		3
+
+/*
+ * Bring a CRTC back after a flip timeout: run a full modeset on it (pipeline
+ * disable and enable, encoder disable and enable, which retrains the DP link)
+ * from process context, with all modeset locks held.
+ */
+static void linlondp_crtc_recover_work(struct work_struct *work)
+{
+	struct linlondp_crtc *kcrtc =
+		container_of(work, struct linlondp_crtc, recover_work);
+	struct drm_crtc *crtc = &kcrtc->base;
+	struct drm_device *drm = crtc->dev;
+	struct drm_modeset_acquire_ctx ctx;
+	struct drm_atomic_commit *state;
+	struct drm_crtc_state *crtc_state;
+	int ret;
+
+	DRM_MODESET_LOCK_ALL_BEGIN(drm, ctx, 0, ret);
+
+	state = drm_atomic_commit_alloc(drm);
+	if (!state) {
+		ret = -ENOMEM;
+		goto unlock;
+	}
+	state->acquire_ctx = &ctx;
+
+	crtc_state = drm_atomic_get_crtc_state(state, crtc);
+	if (IS_ERR(crtc_state)) {
+		ret = PTR_ERR(crtc_state);
+		goto put;
+	}
+
+	if (!crtc_state->active) {
+		ret = 0;
+		goto put;
+	}
+
+	crtc_state->mode_changed = true;
+	ret = drm_atomic_add_affected_connectors(state, crtc);
+	if (!ret)
+		ret = drm_atomic_add_affected_planes(state, crtc);
+	if (!ret)
+		ret = drm_atomic_commit(state);
+put:
+	drm_atomic_commit_put(state);
+unlock:
+	DRM_MODESET_LOCK_ALL_END(drm, ctx, ret);
+
+	if (ret)
+		drm_err(drm, "pipe%d: recovery modeset failed: %d\n",
+			kcrtc->master->id, ret);
+	else
+		drm_info(drm, "pipe%d: recovered after flip timeout\n",
+			 kcrtc->master->id);
+}
+
+/*
+ * A unit reset restarts both pipelines of the display unit. Use it only when
+ * no other output on the unit is active; otherwise leave the other output
+ * alone and rely on the modeset of the affected CRTC alone.
+ */
+static void linlondp_crtc_recover_flip_timeout(struct linlondp_crtc *kcrtc,
+					       bool disabling)
+{
+	struct linlondp_dev *mdev = kcrtc->master->mdev;
+	u32 own = BIT(kcrtc->master->id);
+	u32 others;
+
+	if (kcrtc->slave)
+		own |= BIT(kcrtc->slave->id);
+	others = READ_ONCE(mdev->dpmode) & ~own;
+
+	if (others)
+		dev_warn(mdev->dev,
+			 "pipe%d: other output active (mode 0x%x), unit reset skipped\n",
+			 kcrtc->master->id, others);
+	else
+		mdev->funcs->dpu_reset(mdev);
+
+	/* a CRTC that is being switched off needs no modeset afterwards */
+	if (disabling)
+		return;
+
+	if (time_after(jiffies, kcrtc->recover_window +
+		       msecs_to_jiffies(LINLONDP_RECOVER_WINDOW_MS))) {
+		kcrtc->recover_window = jiffies;
+		kcrtc->recover_count = 0;
+	}
+	if (kcrtc->recover_count >= LINLONDP_RECOVER_MAX) {
+		dev_err_ratelimited(mdev->dev,
+				    "pipe%d: too many flip timeouts, no further recovery in this window\n",
+				    kcrtc->master->id);
+		return;
+	}
+	kcrtc->recover_count++;
+	schedule_work(&kcrtc->recover_work);
+}
+
 void linlondp_crtc_flush_and_wait_for_flip_done(
 	struct linlondp_crtc *kcrtc, struct completion *input_flip_done,
 	bool disable_crtc)
@@ -532,13 +634,13 @@ void linlondp_crtc_flush_and_wait_for_flip_done(
 	if (disable_crtc)
 		mdev->funcs->flush(mdev, kcrtc->master->id, 0);
 
-	/* wait the flip take affect. wait for a maximum time of 60 frames*/
+	/* wait for the flip to take effect, for at most 3 frame periods */
 	timeout = 3 * vblank->framedur_ns / 1000000;
 	timeout = wait_for_completion_timeout(flip_done, msecs_to_jiffies(timeout));
 	if (timeout == 0) {
 		dev_err(mdev->dev, "wait pipe%d flip done timeout\n",
 			kcrtc->master->id);
-		mdev->funcs->dpu_reset(mdev);
+		linlondp_crtc_recover_flip_timeout(kcrtc, disable_crtc);
 		if (!input_flip_done) {
 			spin_lock_irqsave(&drm->event_lock, flags);
 			kcrtc->disable_done = NULL;
@@ -961,6 +1063,7 @@ static int linlondp_crtc_create_ctm_ext_property(struct linlondp_crtc *kcrtc)
 
 static void linlondp_crtc_destroy(struct drm_crtc *crtc)
 {
+	cancel_work_sync(&to_kcrtc(crtc)->recover_work);
 	drm_self_refresh_helper_cleanup(crtc);
 	drm_crtc_cleanup(crtc);
 }
@@ -1064,6 +1167,8 @@ static int linlondp_crtc_add(struct linlondp_kms_dev *kms,
 		return err;
 
 	drm_crtc_helper_add(crtc, &linlondp_crtc_helper_funcs);
+	INIT_WORK(&kcrtc->recover_work, linlondp_crtc_recover_work);
+	kcrtc->recover_window = jiffies;
 
 	if (has_acpi_companion(kms->base.dev)) {
 		/* Reuse this field to transfer port fwnode_handle for ACPI */

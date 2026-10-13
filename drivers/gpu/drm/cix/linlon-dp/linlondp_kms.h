@@ -7,6 +7,7 @@
 #ifndef _LINLONDP_KMS_H_
 #define _LINLONDP_KMS_H_
 
+#include <linux/workqueue.h>
 #include <linux/list.h>
 #include <linux/mutex.h>
 #include <drm/drm_atomic.h>
@@ -223,6 +224,12 @@ struct linlondp_crtc {
 
 	/** @disable_done: this flip_done is for tracing the disable */
 	struct completion *disable_done;
+	/** @recover_work: forced modeset after a flip timeout */
+	struct work_struct recover_work;
+	/** @recover_window: start (jiffies) of the current recovery window */
+	unsigned long recover_window;
+	/** @recover_count: recoveries scheduled in the current window */
+	unsigned int recover_count;
 	/* protected mode property */
 	struct drm_property *protected_mode_property;
 	/* ctm ext properties */
