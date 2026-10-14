@@ -21,3 +21,14 @@ config VIDEO_LINLON_PRINT_FILE
 	default y
 	help
 	  Append file and line number to kernel space log messages.
+
+config VIDEO_LINLON_OOT
+	tristate "Kernel support for the out-of-tree Linlon VPU driver"
+	depends on VIDEO_DEV
+	depends on !VIDEO_LINLON
+	select VIDEOBUF2_DMA_SG
+	select VIDEOBUF2_MEMOPS
+	help
+	  Build the videobuf2 helpers that the Linlon VPU driver (amvx) needs
+	  when it is built out of tree (for example by DKMS) instead of with
+	  VIDEO_LINLON. Does not build the driver itself.
