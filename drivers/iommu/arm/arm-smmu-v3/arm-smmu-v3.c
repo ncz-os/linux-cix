@@ -1900,7 +1900,10 @@ void arm_smmu_make_cdtable_ste(struct arm_smmu_ste *target,
 			 STRTAB_STE_1_S1STALLD :
 			 0) |
 		FIELD_PREP(STRTAB_STE_1_EATS,
-			   ats_enabled ? STRTAB_STE_1_EATS_TRANS : 0));
+			   (ats_enabled ||
+			    ((smmu->options & ARM_SMMU_OPT_PCIE_ATS_OVERRIDE) &&
+			     dev_is_pci(master->dev))) ?
+				STRTAB_STE_1_EATS_TRANS : 0));
 
 	if ((smmu->features & ARM_SMMU_FEAT_ATTR_TYPES_OVR) &&
 	    s1dss == STRTAB_STE_1_S1DSS_BYPASS)
@@ -1952,7 +1955,10 @@ void arm_smmu_make_s2_domain_ste(struct arm_smmu_ste *target,
 
 	target->data[1] = cpu_to_le64(
 		FIELD_PREP(STRTAB_STE_1_EATS,
-			   ats_enabled ? STRTAB_STE_1_EATS_TRANS : 0));
+			   (ats_enabled ||
+			    ((smmu->options & ARM_SMMU_OPT_PCIE_ATS_OVERRIDE) &&
+			     dev_is_pci(master->dev))) ?
+				STRTAB_STE_1_EATS_TRANS : 0));
 
 	if (pgtbl_cfg->quirks & IO_PGTABLE_QUIRK_ARM_S2FWB)
 		target->data[1] |= cpu_to_le64(STRTAB_STE_1_S2FWB);
@@ -4536,7 +4542,7 @@ static int arm_smmu_init_strtab_2lvl(struct arm_smmu_device *smmu)
 	/* Calculate the L1 size, capped to the SIDSIZE. */
 	cfg->l2.num_l1_ents = min(last_sid_idx + 1, STRTAB_MAX_L1_ENTRIES);
 	if (cfg->l2.num_l1_ents <= last_sid_idx)
-		dev_warn(smmu->dev,
+		dev_dbg(smmu->dev,
 			 "2-level strtab only covers %u/%u bits of SID\n",
 			 ilog2(cfg->l2.num_l1_ents * STRTAB_NUM_L2_STES),
 			 smmu->sid_bits);
@@ -4841,6 +4847,18 @@ static void arm_smmu_write_strtab(struct arm_smmu_device *smmu)
 	writel_relaxed(reg, smmu->base + ARM_SMMU_STRTAB_BASE_CFG);
 }
 
+/* CIX Sky1 PCIe SMMU, identified by its ACPI MMIO resource. */
+static bool arm_smmu_is_cix_sky1_pcie(struct arm_smmu_device *smmu)
+{
+	struct resource *res;
+
+	if (smmu->dev->of_node)
+		return false;
+	res = platform_get_resource(to_platform_device(smmu->dev),
+				    IORESOURCE_MEM, 0);
+	return res && res->start == 0x0b010000ULL;
+}
+
 static int arm_smmu_device_reset(struct arm_smmu_device *smmu)
 {
 	int ret;
@@ -5041,7 +5059,7 @@ static void arm_smmu_get_httu(struct arm_smmu_device *smmu, u32 reg)
 		smmu->features |= hw_features;
 	else if (hw_features != fw_features)
 		/* ACPI IORT sets the HTTU bits */
-		dev_warn(smmu->dev,
+		dev_dbg(smmu->dev,
 			 "IDR0.HTTU features(0x%x) overridden by FW configuration (0x%x)\n",
 			  hw_features, fw_features);
 }
@@ -5113,7 +5131,7 @@ static int arm_smmu_device_hw_probe(struct arm_smmu_device *smmu)
 	 * register, but warn on mismatch.
 	 */
 	if (!!(reg & IDR0_COHACC) != coherent)
-		dev_warn(smmu->dev, "IDR0.COHACC overridden by FW configuration (%s)\n",
+		dev_dbg(smmu->dev, "IDR0.COHACC overridden by FW configuration (%s)\n",
 			 str_true_false(coherent));
 
 	switch (FIELD_GET(IDR0_STALL_MODEL, reg)) {
@@ -5427,6 +5445,67 @@ static void __iomem *arm_smmu_ioremap(struct device *dev, resource_size_t start,
 	return devm_ioremap_resource(dev, &res);
 }
 
+/*
+ * CIX Sky1 SoC PCIe SMMU -- pre-install bypass STEs for PCIe root port
+ * and device SIDs under ACPI boot (ported from cix-sky1-next).
+ *
+ * Without these, PCIe devices already bus-mastering at SMMU reset
+ * (NVMe, NICs brought up by firmware) hit abort STEs -> C_BAD_STREAMID
+ * storms / DMA errors / boot wedge. Detect the Sky1 PCIe SMMU by its
+ * physical base and install bypass STEs for the known SIDs; also force
+ * EATS for PCIe masters (Sky1 DTI ATS Master sends translated TLPs even
+ * for non-ATS endpoints).
+ */
+#define CIX_SKY1_PCIE_SMMU_BASE	0x0b010000ULL
+
+static const u32 cix_sky1_pcie_boot_sids[] = {
+	0x0000, 0x0100,		/* PCIe X1_0 */
+	0x3000, 0x3100,		/* PCIe X1_1 */
+	0x6000, 0x6100,		/* PCIe X2 */
+	0x9000, 0x9100,		/* PCIe X4 */
+	0xc000, 0xc100,		/* PCIe X8 */
+};
+
+static void arm_smmu_acpi_install_bypass_ste(struct arm_smmu_device *smmu)
+{
+	struct platform_device *pdev = to_platform_device(smmu->dev);
+	struct resource *res;
+	unsigned int i, count = 0;
+
+	if (smmu->dev->of_node)
+		return;
+
+	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!res || res->start != CIX_SKY1_PCIE_SMMU_BASE)
+		return;
+
+	for (i = 0; i < ARRAY_SIZE(cix_sky1_pcie_boot_sids); i++) {
+		u32 sid = cix_sky1_pcie_boot_sids[i];
+
+		if (arm_smmu_init_sid_strtab(smmu, sid)) {
+			dev_err(smmu->dev,
+				"Sky1 PCIe boot SID(0x%x) bypass failed\n",
+				sid);
+			continue;
+		}
+
+		arm_smmu_make_bypass_ste(smmu,
+			arm_smmu_get_step_for_sid(smmu, sid));
+		count++;
+	}
+
+	/*
+	 * Sky1 PCIe DTI ATS-master emits translated TLPs even for non-ATS
+	 * endpoints. Keep EATS enabled in the translated STEs installed for
+	 * the normal DMA domains.
+	 */
+	smmu->options |= ARM_SMMU_OPT_PCIE_ATS_OVERRIDE;
+
+	dev_info(smmu->dev,
+		 "CIX Sky1 PCIe SMMU: %u bypass STEs installed, ATS override enabled\n",
+		 count);
+}
+
 static void arm_smmu_rmr_install_bypass_ste(struct arm_smmu_device *smmu)
 {
 	struct list_head rmr_list;
@@ -5507,6 +5586,25 @@ err_remove:
 	return ERR_PTR(ret);
 }
 
+static int __maybe_unused arm_smmu_suspend(struct device *dev)
+{
+	struct arm_smmu_device *smmu = dev_get_drvdata(dev);
+
+	/* disable smmu to clear CR0 */
+	arm_smmu_device_disable(smmu);
+
+	return 0;
+}
+
+static int __maybe_unused arm_smmu_resume(struct device *dev)
+{
+	struct arm_smmu_device *smmu = dev_get_drvdata(dev);
+
+	arm_smmu_device_reset(smmu);
+
+	return 0;
+}
+
 static int arm_smmu_device_probe(struct platform_device *pdev)
 {
 	int irq, ret;
@@ -5582,6 +5680,20 @@ static int arm_smmu_device_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
+	/*
+	 * Sky1's IORT reports ATS, but not PRI, for the PCIe root complex.
+	 * Enabling the MMU-700 PRI queue on this integration produces sustained
+	 * C_BAD_STREAMID events followed by PCIe transaction failures.  The
+	 * working 7.0 configuration never enables CR0.PRIQEN.  Mask PRI before
+	 * queue allocation so a generic configuration with CONFIG_PCI_PRI=y has
+	 * the same hardware state.
+	 */
+	if (arm_smmu_is_cix_sky1_pcie(smmu) &&
+	    (smmu->features & ARM_SMMU_FEAT_PRI)) {
+		smmu->features &= ~ARM_SMMU_FEAT_PRI;
+		dev_info(dev, "CIX Sky1 PCIe SMMU: PRI disabled\n");
+	}
+
 	/* Initialise in-memory data structures */
 	ret = arm_smmu_init_structures(smmu);
 	if (ret)
@@ -5592,6 +5704,7 @@ static int arm_smmu_device_probe(struct platform_device *pdev)
 
 	/* Check for RMRs and install bypass STEs if any */
 	arm_smmu_rmr_install_bypass_ste(smmu);
+	arm_smmu_acpi_install_bypass_ste(smmu);
 
 	/* Reset the device */
 	ret = arm_smmu_device_reset(smmu);
@@ -5648,11 +5761,16 @@ static void arm_smmu_driver_unregister(struct platform_driver *drv)
 	platform_driver_unregister(drv);
 }
 
+static const struct dev_pm_ops arm_smmu_pm_ops = {
+	SET_SYSTEM_SLEEP_PM_OPS(arm_smmu_suspend, arm_smmu_resume)
+};
+
 static struct platform_driver arm_smmu_driver = {
 	.driver	= {
 		.name			= "arm-smmu-v3",
 		.of_match_table		= arm_smmu_of_match,
 		.suppress_bind_attrs	= true,
+		.pm			= &arm_smmu_pm_ops,
 	},
 	.probe	= arm_smmu_device_probe,
 	.remove = arm_smmu_device_remove,

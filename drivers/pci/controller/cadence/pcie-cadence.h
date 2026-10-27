@@ -14,6 +14,14 @@
 #include "pcie-cadence-lga-regs.h"
 #include "pcie-cadence-hpa-regs.h"
 
+/*
+ * Local Management Registers
+ */
+#define CDNS_PCIE_IP_REG_BANK_BASE		0x1000
+#define CDNS_PCIE_IP_CFG_CTRL_REG_BANK_BASE 	0x4c00
+#define CDNS_PCIE_IP_AXI_SLAVE_BASE		0x9000
+#define CDNS_PCIE_IP_AXI_MASTER_COMMON_BASE	0xb000
+
 #define CDNS_PCIE_LGA_LTSSM_STATUS_MASK	GENMASK(29, 24)
 #define CDNS_PCIE_HPA_LTSSM_STATUS_MASK	GENMASK(27, 20)
 
@@ -312,6 +320,8 @@ struct cdns_pcie_rc {
 	unsigned int		quirk_detect_quiet_flag:1;
 	unsigned int            ecam_supported:1;
 	unsigned int            no_inbound_map:1;
+	/* NCZ Sky1 ACPI native mode: program HPA outbound region 0 for ECAM */
+	unsigned int            sky1_bsp_ecam_region:1;
 	unsigned int            quirk_broken_aspm_l0s:1;
 	unsigned int            quirk_broken_aspm_l1:1;
 };
@@ -624,6 +634,7 @@ static inline bool cdns_pcie_link_up(struct cdns_pcie *pcie)
 int cdns_pcie_host_link_setup(struct cdns_pcie_rc *rc);
 int cdns_pcie_host_init(struct cdns_pcie_rc *rc);
 int cdns_pcie_host_setup(struct cdns_pcie_rc *rc);
+int cdns_pcie_hpa_host_restore(struct cdns_pcie_rc *rc);
 void cdns_pcie_host_disable(struct cdns_pcie_rc *rc);
 void __iomem *cdns_pci_map_bus(struct pci_bus *bus, unsigned int devfn,
 			       int where);
@@ -641,6 +652,11 @@ static inline int cdns_pcie_host_init(struct cdns_pcie_rc *rc)
 }
 
 static inline int cdns_pcie_host_setup(struct cdns_pcie_rc *rc)
+{
+	return 0;
+}
+
+static inline int cdns_pcie_hpa_host_restore(struct cdns_pcie_rc *rc)
 {
 	return 0;
 }
@@ -686,6 +702,8 @@ static inline int cdns_pcie_hpa_ep_setup(struct cdns_pcie_ep *ep)
 
 #endif
 
+u8   sky1_cdns_pcie_find_capability(void __iomem *reg_base, u8 cap);
+u16  sky1_cdns_pcie_find_ext_capability(void __iomem *reg_base, u16 cap);
 u8   cdns_pcie_find_capability(struct cdns_pcie *pcie, u8 cap);
 u16  cdns_pcie_find_ext_capability(struct cdns_pcie *pcie, u8 cap);
 bool cdns_pcie_linkup(struct cdns_pcie *pcie);

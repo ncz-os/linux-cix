@@ -16,6 +16,7 @@
 #include <linux/pm.h>
 #include <linux/printk.h>
 #include <linux/psci.h>
+#include <linux/ncz-resume-beacon.h>
 #include <linux/reboot.h>
 #include <linux/slab.h>
 #include <linux/suspend.h>
@@ -532,8 +533,15 @@ static int psci_system_suspend(unsigned long unused)
 	int err;
 	phys_addr_t pa_cpu_resume = __pa_symbol(cpu_resume);
 
+	/*
+	 * NCZ resume beacon R4: return from PSCI SYSTEM_SUSPEND.  This
+	 * is the proof that the firmware handoff completed and Linux
+	 * control of CPU0 is back.  See patch preamble for why this
+	 * is the right site even on the ACPI boot path.
+	 */
 	err = invoke_psci_fn(PSCI_FN_NATIVE(1_0, SYSTEM_SUSPEND),
 			      pa_cpu_resume, 0, 0);
+	ncz_beacon("R4-psci_system_suspend_return");
 	return psci_to_linux_errno(err);
 }
 

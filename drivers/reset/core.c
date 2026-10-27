@@ -30,6 +30,9 @@
 static DEFINE_MUTEX(reset_list_mutex);
 static LIST_HEAD(reset_controller_list);
 
+static DEFINE_MUTEX(reset_lookup_mutex);
+static LIST_HEAD(reset_lookup_list);
+
 /* Protects reset_gpio_lookup_list */
 static DEFINE_MUTEX(reset_gpio_lookup_mutex);
 static LIST_HEAD(reset_gpio_lookup_list);
@@ -1231,21 +1234,121 @@ out_put:
 }
 EXPORT_SYMBOL_GPL(__fwnode_reset_control_get);
 
+/**
+ * reset_controller_add_lookup - register a set of lookup entries
+ * @lookup: array of reset lookup entries
+ * @num_entries: number of entries in the lookup array
+ */
+void reset_controller_add_lookup(struct reset_control_lookup *lookup,
+				 unsigned int num_entries)
+{
+	struct reset_control_lookup *entry;
+	unsigned int i;
+
+	guard(mutex)(&reset_lookup_mutex);
+
+	for (i = 0; i < num_entries; i++) {
+		entry = &lookup[i];
+
+		if (!entry->dev_id || !entry->provider) {
+			pr_warn("%s(): reset lookup entry badly specified, skipping\n",
+				__func__);
+			continue;
+		}
+
+		list_add_tail(&entry->list, &reset_lookup_list);
+	}
+}
+EXPORT_SYMBOL_GPL(reset_controller_add_lookup);
+
+static struct reset_controller_dev *
+__reset_controller_by_name(const char *name)
+{
+	struct reset_controller_dev *rcdev;
+
+	lockdep_assert_held(&reset_list_mutex);
+
+	list_for_each_entry(rcdev, &reset_controller_list, list) {
+		if (rcdev->dev && !strcmp(name, dev_name(rcdev->dev)))
+			return rcdev;
+	}
+
+	return NULL;
+}
+
+static struct reset_control *
+__reset_control_get_from_lookup(struct device *dev, const char *con_id,
+				enum reset_control_flags flags)
+{
+	bool optional = flags & RESET_CONTROL_FLAGS_BIT_OPTIONAL;
+	const struct reset_control_lookup *lookup;
+	struct reset_controller_dev *rcdev;
+	struct reset_control *rstc = NULL;
+	const char *dev_id = dev_name(dev);
+
+	guard(mutex)(&reset_lookup_mutex);
+
+	list_for_each_entry(lookup, &reset_lookup_list, list) {
+		if (strcmp(lookup->dev_id, dev_id))
+			continue;
+
+		if ((!con_id && !lookup->con_id) ||
+		    (con_id && lookup->con_id &&
+		     !strcmp(con_id, lookup->con_id))) {
+			scoped_guard(mutex, &reset_list_mutex) {
+				rcdev = __reset_controller_by_name(lookup->provider);
+				if (!rcdev)
+					return ERR_PTR(-EPROBE_DEFER);
+
+				flags &= ~RESET_CONTROL_FLAGS_BIT_OPTIONAL;
+				scoped_guard(mutex, &rcdev->lock)
+					rstc = __reset_control_get_internal(rcdev,
+								    lookup->index,
+								    flags);
+			}
+			break;
+		}
+	}
+
+	if (!rstc)
+		return optional ? NULL : ERR_PTR(-ENOENT);
+
+	return rstc;
+}
+
 struct reset_control *__reset_control_get(struct device *dev, const char *id,
 					  int index, enum reset_control_flags flags)
 {
 	bool shared = flags & RESET_CONTROL_FLAGS_BIT_SHARED;
 	bool acquired = flags & RESET_CONTROL_FLAGS_BIT_ACQUIRED;
-	bool optional = flags & RESET_CONTROL_FLAGS_BIT_OPTIONAL;
 	struct fwnode_handle *fwnode = dev_fwnode(dev);
+	struct reset_control *rstc;
 
 	if (WARN_ON(shared && acquired))
 		return ERR_PTR(-EINVAL);
 
-	if (fwnode)
-		return __fwnode_reset_control_get(fwnode, id, index, flags);
+	if (fwnode) {
+		rstc = __fwnode_reset_control_get(fwnode, id, index, flags);
+		if (!IS_ERR_OR_NULL(rstc))
+			return rstc;
 
-	return optional ? NULL : ERR_PTR(-ENOENT);
+		/*
+		 * Lookup tables support firmware interfaces which cannot express
+		 * resets as standard fwnode properties.  CIX ACPI, for example,
+		 * describes them in RSTL AML packages which a platform helper
+		 * translates into reset_control_lookup entries.
+		 *
+		 * Before the reset core was converted from OF to fwnode, ACPI
+		 * consumers reached the lookup path because they had no of_node.
+		 * Preserve that behavior when the fwnode has no matching reset,
+		 * while still propagating malformed properties, probe deferrals,
+		 * and all other errors from native fwnode reset providers.
+		 */
+		if (IS_ERR(rstc) && PTR_ERR(rstc) != -ENOENT)
+			return rstc;
+	}
+
+	return __reset_control_get_from_lookup(dev, id, flags);
 }
 EXPORT_SYMBOL_GPL(__reset_control_get);
 

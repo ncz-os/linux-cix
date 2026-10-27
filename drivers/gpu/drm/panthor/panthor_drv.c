@@ -1821,6 +1821,7 @@ static int panthor_probe(struct platform_device *pdev)
 {
 	struct panthor_device *ptdev;
 
+	dev_pm_set_driver_flags(&pdev->dev, DPM_FLAG_NO_DIRECT_COMPLETE);
 	ptdev = devm_drm_dev_alloc(&pdev->dev, &panthor_drm_driver,
 				   struct panthor_device, base);
 	if (IS_ERR(ptdev))
@@ -1884,10 +1885,23 @@ static const struct panthor_soc_data soc_data_mediatek_mt8196 = {
 static const struct of_device_id dt_match[] = {
 	{ .compatible = "mediatek,mt8196-mali", .data = &soc_data_mediatek_mt8196, },
 	{ .compatible = "rockchip,rk3588-mali" },
+	{ .compatible = "arm,mali-valhall" },
 	{ .compatible = "arm,mali-valhall-csf" },
 	{}
 };
 MODULE_DEVICE_TABLE(of, dt_match);
+
+#ifdef CONFIG_ACPI
+static const struct acpi_device_id panthor_acpi_match[] = {
+	{ "CIXH5000", 0 },
+	{ }
+};
+MODULE_DEVICE_TABLE(acpi, panthor_acpi_match);
+#else
+static const struct acpi_device_id panthor_acpi_match[] = {
+	{ }
+};
+#endif
 
 static DEFINE_RUNTIME_DEV_PM_OPS(panthor_pm_ops,
 				 panthor_device_suspend,
@@ -1901,6 +1915,7 @@ static struct platform_driver panthor_driver = {
 		.name = "panthor",
 		.pm = pm_ptr(&panthor_pm_ops),
 		.of_match_table = dt_match,
+		.acpi_match_table = ACPI_PTR(panthor_acpi_match),
 		.dev_groups = panthor_groups,
 	},
 };
@@ -1955,3 +1970,6 @@ MODULE_AUTHOR("Panthor Project Developers");
 MODULE_DESCRIPTION("Panthor DRM Driver");
 MODULE_LICENSE("Dual MIT/GPL");
 MODULE_IMPORT_NS("DMA_BUF");
+#if IS_ENABLED(CONFIG_ARCH_CIX) && IS_MODULE(CONFIG_ARM_SCMI_PERF_DOMAIN)
+MODULE_SOFTDEP("pre: scmi_perf_domain");
+#endif

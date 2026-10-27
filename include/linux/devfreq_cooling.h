@@ -39,7 +39,7 @@ struct devfreq_cooling_power {
 			      unsigned long freq, unsigned long voltage);
 };
 
-#ifdef CONFIG_DEVFREQ_THERMAL
+#if IS_REACHABLE(CONFIG_DEVFREQ_THERMAL)
 
 struct thermal_cooling_device *
 of_devfreq_cooling_register_power(struct device_node *np, struct devfreq *df,
@@ -51,8 +51,10 @@ void devfreq_cooling_unregister(struct thermal_cooling_device *dfc);
 struct thermal_cooling_device *
 devfreq_cooling_em_register(struct devfreq *df,
 			    struct devfreq_cooling_power *dfc_power);
+struct device *
+devfreq_cooling_get_device(struct thermal_cooling_device *cdev);
 
-#else /* !CONFIG_DEVFREQ_THERMAL */
+#else /* !IS_REACHABLE(CONFIG_DEVFREQ_THERMAL) */
 
 static inline struct thermal_cooling_device *
 of_devfreq_cooling_register_power(struct device_node *np, struct devfreq *df,
@@ -85,5 +87,11 @@ devfreq_cooling_unregister(struct thermal_cooling_device *dfc)
 {
 }
 
-#endif /* CONFIG_DEVFREQ_THERMAL */
+static inline struct device *
+devfreq_cooling_get_device(struct thermal_cooling_device *cdev)
+{
+	return NULL;
+}
+
+#endif /* IS_REACHABLE(CONFIG_DEVFREQ_THERMAL) */
 #endif /* __DEVFREQ_COOLING_H__ */

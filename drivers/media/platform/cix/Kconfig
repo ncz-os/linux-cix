@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config VIDEO_LINLON
+	tristate "Linlon VPU support"
+	depends on VIDEO_DEV
+	select VIDEOBUF2_DMA_SG
+	select VIDEOBUF2_MEMOPS
+	default y
+	help
+	  This enables support for the Linlon VPU family.
+
+config VIDEO_LINLON_FTRACE
+	bool "Send kernel space logs to ftrace"
+	depends on VIDEO_LINLON
+	default n
+	help
+	  Send kernel space logs to ftrace.
+
+config VIDEO_LINLON_PRINT_FILE
+	bool "Append file and line number to kernel space log messages"
+	depends on VIDEO_LINLON
+	default y
+	help
+	  Append file and line number to kernel space log messages.
+
+config VIDEO_LINLON_OOT
+	tristate "Kernel support for the out-of-tree Linlon VPU driver"
+	depends on VIDEO_DEV
+	depends on !VIDEO_LINLON
+	select VIDEOBUF2_DMA_SG
+	select VIDEOBUF2_MEMOPS
+	help
+	  Build the videobuf2 helpers that the Linlon VPU driver (amvx) needs
+	  when it is built out of tree (for example by DKMS) instead of with
+	  VIDEO_LINLON. Does not build the driver itself.
